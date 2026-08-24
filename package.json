@@ -1,0 +1,33 @@
+{
+  "name": "sentinel-workers",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous Heat-Risk Prevention for Outdoor Workers",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "providers/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"api,dash,risk\" -c \"cyan,magenta,yellow\" \"npm run dev:api\" \"npm run dev:dashboard\" \"npm run dev:risk\"",
+    "dev:api": "npm run dev --workspace=@sentinel/api",
+    "dev:dashboard": "npm run dev --workspace=@sentinel/dashboard",
+    "dev:risk": "powershell -Command \"cd apps/risk-service; uvicorn app.main:app --port 8000 --reload\"",
+    "build": "npm run build --workspace=@sentinel/schemas && npm run build --workspace=@sentinel/policy && npm run build --workspace=@sentinel/simulation && npm run build --workspace=@sentinel/fortyguard-provider && npm run build --workspace=@sentinel/api && npm run build --workspace=@sentinel/dashboard",
+    "test": "vitest run",
+    "test:workers": "vitest run tests/unit/workers-generator.test.ts",
+    "test:policy": "vitest run tests/unit/policy-guardrails.test.ts",
+    "test:simulation": "vitest run tests/unit/simulation-engine.test.ts",
+    "test:api": "vitest run tests/integration/api-health.test.ts",
+    "test:e2e": "vitest run tests/integration/full-pipeline.test.ts",
+    "test:python": "powershell -Command \"pytest apps/risk-service/tests\"",
+    "seed": "npm run seed --workspace=@sentinel/api"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "concurrently": "^9.1.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

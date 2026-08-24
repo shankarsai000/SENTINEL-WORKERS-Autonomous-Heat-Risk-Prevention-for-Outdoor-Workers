@@ -1,0 +1,9 @@
+{
+  "scenario_id": "PHX_SUMMER_HEATWAVE_2026",
+  "name": "Phoenix July Extreme Thermal Escalation (12-Hour Shift)",
+  "description": "Deterministic scenario tracking a high-pressure heat dome event over Maricopa County with peak ambient temps exceeding 46°C.",
+  "duration_hours": 12,
+  "tick_interval_minutes": 15,
+  "total_ticks": 48,
+  "sites_modeled": 5
+}
