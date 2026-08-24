@@ -16,13 +16,22 @@ $$\text{Observe} \longrightarrow \text{Contextualize} \longrightarrow \text{Pred
 ## 2. System Architecture
 
 ```
-                                [ FORTYGUARD ENTERPRISE API ]
-                                   (or Offline Replay Engine)
-                                              |
-                                              | ThermalObservation
-                                              v
+                       [ FORTYGUARD ENTERPRISE API ]
+                          (v1.0.0 Asynchronous Task)
+                                     |
+                                     | POST /v1/heatmap (api-key header)
+                                     v
+                       [ Asynchronous activity_id ]
+                                     |
+                                     | GET /v1/status/{activity_id} (Bounded Polling)
+                                     v
+                       [ Normalized ThermalObservation ]
+                          (source: fortyguard | cache | sim)
+                                     |
+                                     v
 +-----------------------------------------------------------------------------------------+
 |                               SENTINEL ORCHESTRATOR                                     |
+|  - Data Modes: "offline" (Replay), "fortyguard" (Live API), "hybrid" (Auto Failover)   |
 |  - Ingests thermal observations (Temp, Wet Bulb, Solar Irradiance)                      |
 |  - Joins worker context (Role, Task Intensity, Exposure Duration, Risk Modifier)        |
 +---------------------------------------------+-------------------------------------------+
@@ -54,9 +63,10 @@ $$\text{Observe} \longrightarrow \text{Contextualize} \longrightarrow \text{Pred
 
 ## 3. Technology Stack
 
-- **Backend API & Orchestrator**: Node.js, TypeScript, Express, SQLite (`better-sqlite3`), WebSockets (`ws`).
+- **Environmental Intelligence**: FortyGuard Enterprise API (v1.0.0), Asynchronous Task Polling, Semantic Cache.
+- **Backend API & Orchestrator**: Node.js 22, TypeScript, Express, SQLite (`better-sqlite3`), WebSockets (`ws`).
 - **Risk Assessment Service**: Python 3.14, FastAPI, Pydantic, Uvicorn.
-- **Operations Console Dashboard**: React, Vite, TypeScript, Lucide Icons, Vanilla CSS design system.
+- **Operations Console Dashboard**: React 18, Vite, TypeScript, Lucide Icons, Vanilla CSS design system.
 - **Testing**: Vitest for TypeScript monorepo, Pytest for Python risk service.
 - **Infrastructure**: Docker, Docker Compose.
 
@@ -68,26 +78,27 @@ $$\text{Observe} \longrightarrow \text{Contextualize} \longrightarrow \text{Pred
 sentinel-workers/
 ├── apps/
 │   ├── api/                  # Express REST API, SQLite store & Orchestrator
-│   ├── dashboard/            # React Vite Operations Console UI
+│   ├── dashboard/            # React Vite Operations Console UI (Data provenance badges)
 │   └── risk-service/         # Python FastAPI deterministic risk engine
 ├── packages/
 │   ├── policy/               # OSHA/NIOSH thermal policies & safety guardrails
 │   ├── schemas/              # Shared TypeScript & runtime Zod contracts
 │   └── simulation/           # Offline deterministic simulation engine & PRNG
 ├── providers/
-│   └── fortyguard/           # FortyGuard Enterprise async API provider adapter
+│   └── fortyguard/           # FortyGuard client, poller, cache, normalizer, capabilities
 ├── data/
 │   ├── scenarios/            # Phoenix 12-hour heatwave scenario profile
 │   └── synthetic-workers/    # 500 deterministic synthetic workers
 ├── docs/
-│   ├── architecture/         # System overview and data-flow specifications
-│   ├── demo/                 # Offline demo walkthrough script
-│   └── evidence/             # Baseline benchmark metrics & claims audit
+│   ├── architecture/         # System overview, data-flow, and fortyguard-integration specs
+│   ├── demo/                 # Offline and live demo walkthrough scripts
+│   └── evidence/             # Baseline benchmark metrics & claims audit (p0 & p1)
 ├── infra/
 │   └── docker/               # Multi-stage Dockerfiles for API, UI, Risk Service
 ├── tests/
-│   ├── unit/                 # Workers determinism, Simulation physics, Guardrails
-│   └── integration/          # REST API health and full closed-loop e2e pipeline
+│   ├── fixtures/fortyguard/  # Official FortyGuard request/response contract JSONs
+│   ├── unit/                 # Workers, Simulation, Guardrails, Client, Poller, Cache, Security
+│   └── integration/          # API health, Full pipeline, Hybrid fallback, Gated live test
 ├── docker-compose.yml
 ├── .env.example
 ├── package.json
@@ -98,7 +109,7 @@ sentinel-workers/
 
 ## 5. Quickstart & Local Development
 
-### Option A: One-Command Docker Compose (Recommended)
+### Option A: One-Command Docker Compose
 
 ```bash
 docker compose up --build
@@ -120,8 +131,9 @@ docker compose up --build
    pip install -r apps/risk-service/requirements.txt
    ```
 
-3. **Start All Services Concurrently**:
+3. **Build Packages & Start All Services**:
    ```bash
+   npm run build
    npm run dev
    ```
 
@@ -132,18 +144,17 @@ docker compose up --build
 Run the full TypeScript and Python test suite:
 
 ```bash
-# 1. Run all TypeScript unit and integration tests
+# 1. Run all TypeScript unit and integration tests (including FortyGuard mock suite)
 npm test
 
 # 2. Run Python Risk Service unit tests
 python -m pytest apps/risk-service/tests
 
-# 3. Run individual test suites
-npm run test:workers       # 500 synthetic worker determinism test
-npm run test:policy        # Policy threshold & guardrail safety test
-npm run test:simulation    # Simulation physics & Stull wet-bulb formula test
-npm run test:api           # REST API health & capability endpoints
-npm run test:e2e           # Full closed-loop end-to-end integration pipeline
+# 3. Run FortyGuard specific unit and security tests
+npm run test:fortyguard
+
+# 4. Optional: Run live FortyGuard integration test (requires API key)
+RUN_FORTYGUARD_LIVE_TESTS=true FORTYGUARD_API_KEY=your_key npm test tests/integration/fortyguard-live.test.ts
 ```
 
 ---
@@ -153,20 +164,23 @@ npm run test:e2e           # Full closed-loop end-to-end integration pipeline
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/health` | Service health status and database connectivity |
-| `GET` | `/api/system/capabilities` | System capabilities and active feature flags |
+| `GET` | `/api/system/capabilities` | System capabilities and FortyGuard capability discovery |
 | `GET` | `/api/sites` | List of 5 configurable Phoenix construction sites |
 | `GET` | `/api/workers?site_id=...` | List 500 synthetic workers (with site filtering) |
 | `GET` | `/api/risk/summary` | Realtime distribution counts (GREEN, WATCH, ELEVATED, HIGH, CRITICAL) |
 | `GET` | `/api/risk/workers` | Ranked worker list with latest risk states and metadata |
 | `GET` | `/api/events` | Cryptographic SHA-256 audit log trail |
 | `GET` | `/api/incidents` | Clustered site heat stress incidents |
+| `GET` | `/api/fortyguard/status` | FortyGuard adapter status, masked key, and cache metrics |
+| `GET` | `/api/fortyguard/usage` | Detailed API usage log and estimated credit tracking |
+| `POST` | `/api/fortyguard/test-connection` | Safe development connection and capability test |
+| `POST` | `/api/fortyguard/mode` | Switch data mode (`offline`, `fortyguard`, `hybrid`) |
+| `POST` | `/api/fortyguard/fetch-site-observation` | Fetch provider observation for a specific site |
 | `POST` | `/api/simulation/start` | Start/Resume the 12-hour Phoenix heatwave replay |
 | `POST` | `/api/simulation/pause` | Pause simulation clock |
 | `POST` | `/api/simulation/step` | Advance simulation by 15-minute increment |
-| `POST` | `/api/simulation/speed` | Set speed multiplier (1x, 2x, 5x, 10x) |
 | `POST` | `/api/actions/:id/ack` | Supervisor acknowledgement of an action |
 | `POST` | `/api/actions/:id/override` | Supervisor override with reason capture |
-| `GET` | `/api/fortyguard/usage` | FortyGuard adapter status and credit metrics |
 | `WS` | `/ws` | Realtime WebSocket event stream |
 
 ---
@@ -175,4 +189,5 @@ npm run test:e2e           # Full closed-loop end-to-end integration pipeline
 
 - **No Medical Claims**: Abstract risk modifiers only (`baseline`, `elevated`, `acclimatizing`).
 - **Deterministic Guardrails**: Hard temperature limits (`>= 45°C`) automatically enforce `STOP_WORK` regardless of model scoring.
-- **Evidence Integrity**: All performance metrics are labeled `[MEASURED]`, `[SIMULATED]`, `[TARGET]`, or `[EXTERNAL]` in `docs/evidence/p0-baseline.md`.
+- **Provider Decoupling**: FortyGuard is the environmental substrate; Sentinel is the decision system.
+- **Evidence Integrity**: All performance metrics are labeled `[MEASURED]`, `[SIMULATED]`, `[TARGET]`, or `[EXTERNAL]` in `docs/evidence/`.

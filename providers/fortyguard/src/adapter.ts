@@ -1,118 +1,234 @@
-import { ThermalObservation } from '@sentinel/schemas';
+import { ThermalObservation, Site } from '@sentinel/schemas';
+import { FortyGuardClient, FortyGuardClientConfig } from './client.js';
+import { FortyGuardPoller, ProviderActivity, PollerConfig } from './poller.js';
+import { FortyGuardCache } from './cache.js';
+import { FortyGuardCapabilities, FortyGuardCapabilitySummary } from './capabilities.js';
+import { normalizeFortyGuardResult } from './normalizer.js';
 import {
-  FortyGuardEnvParamsRequest,
-  FortyGuardHeatmapRequest,
-  FortyGuardAsyncSubmissionResponse,
-  FortyGuardActivityStatusResponse,
-} from './types.js';
+  HeatmapRequest,
+  HeatmapRequestSchema,
+  EnvParamsRequest,
+  EnvParamsRequestSchema,
+  AsyncSubmissionResponse,
+  AsyncSubmissionResponseSchema,
+} from './schemas.js';
 
-export interface FortyGuardConfig {
-  apiKey?: string;
-  baseUrl?: string;
+export interface FortyGuardAdapterConfig extends FortyGuardClientConfig, PollerConfig {
+  cacheTtlSeconds?: number;
   offlineFallback?: boolean;
 }
 
+export interface APIUsageRecord {
+  id: string;
+  provider: 'fortyguard';
+  endpoint: string;
+  activity_id: string;
+  submitted_at: string;
+  completed_at?: string;
+  status: 'SUBMITTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT';
+  cache_hit: boolean;
+  estimated_credit_cost: number | null;
+  error_code?: string;
+}
+
 export class FortyGuardAdapter {
-  private apiKey: string;
-  private baseUrl: string;
+  private client: FortyGuardClient;
+  private poller: FortyGuardPoller;
+  private cache: FortyGuardCache;
   private offlineFallback: boolean;
-  private cache: Map<string, { data: FortyGuardActivityStatusResponse; expiresAt: number }>;
-  private totalCreditsUsed: number = 0;
+  private usageLog: APIUsageRecord[] = [];
 
-  constructor(config: FortyGuardConfig = {}) {
-    this.apiKey = config.apiKey ?? process.env.FORTYGUARD_API_KEY ?? 'fg_placeholder';
-    this.baseUrl = config.baseUrl ?? process.env.FORTYGUARD_API_URL ?? 'https://api.fortyguard.com/v1';
+  constructor(config: FortyGuardAdapterConfig = {}) {
+    this.client = new FortyGuardClient(config);
+    this.poller = new FortyGuardPoller(this.client, config);
+    this.cache = new FortyGuardCache(config.cacheTtlSeconds);
     this.offlineFallback = config.offlineFallback ?? true;
-    this.cache = new Map();
   }
 
-  public async submitHeatmap(request: FortyGuardHeatmapRequest): Promise<FortyGuardAsyncSubmissionResponse> {
-    if (this.offlineFallback) {
-      const activityId = `act_hm_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      return {
-        activity_id: activityId,
-        status: 'COMPLETED',
-        submitted_at: new Date().toISOString(),
-        estimated_credits: 5,
-      };
-    }
-
-    // Phase P1 will execute real HTTP fetch with api-key header
-    throw new Error('Real FortyGuard HTTP integration is scheduled for Phase P1.');
+  public getClient(): FortyGuardClient {
+    return this.client;
   }
 
-  public async submitEnvParams(request: FortyGuardEnvParamsRequest): Promise<FortyGuardAsyncSubmissionResponse> {
-    if (this.offlineFallback) {
-      const activityId = `act_env_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-      return {
-        activity_id: activityId,
-        status: 'COMPLETED',
-        submitted_at: new Date().toISOString(),
-        estimated_credits: 1,
-      };
-    }
-
-    throw new Error('Real FortyGuard HTTP integration is scheduled for Phase P1.');
+  public getCache(): FortyGuardCache {
+    return this.cache;
   }
 
-  public async getStatus(activityId: string): Promise<FortyGuardActivityStatusResponse> {
-    const cached = this.cache.get(activityId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
+  /**
+   * Generates a valid closed GeoJSON Polygon AOI around a site coordinate.
+   */
+  public static generateSitePolygonAoi(lat: number, lon: number, radiusMeters: number = 300) {
+    // 1 deg latitude ≈ 111,320m; 1 deg longitude ≈ 111,320m * cos(lat)
+    const latDelta = radiusMeters / 111320;
+    const lonDelta = radiusMeters / (111320 * Math.cos((lat * Math.PI) / 180));
 
-    if (this.offlineFallback) {
-      const mockResult: FortyGuardActivityStatusResponse = {
-        activity_id: activityId,
-        status: 'COMPLETED',
-        result: {
-          location: { lat: 33.4484, lon: -112.074 },
-          temperature_c: 41.5,
-          humidity_pct: 22,
-          wet_bulb_c: 27.8,
-          solar_irradiance: 950,
-          apparent_temperature_c: 43.1,
-          observed_at: new Date().toISOString(),
-          granularity_m: 80,
-        },
-        credits_used: 1,
-      };
-      this.totalCreditsUsed += 1;
-      this.cache.set(activityId, { data: mockResult, expiresAt: Date.now() + 60000 });
-      return mockResult;
-    }
+    const minLat = Math.round((lat - latDelta) * 10000) / 10000;
+    const maxLat = Math.round((lat + latDelta) * 10000) / 10000;
+    const minLon = Math.round((lon - lonDelta) * 10000) / 10000;
+    const maxLon = Math.round((lon + lonDelta) * 10000) / 10000;
 
-    throw new Error('Real FortyGuard HTTP integration is scheduled for Phase P1.');
-  }
-
-  public normalize(statusResponse: FortyGuardActivityStatusResponse, siteId: string): ThermalObservation {
-    if (!statusResponse.result) {
-      throw new Error(`Cannot normalize incomplete FortyGuard result for activity ${statusResponse.activity_id}`);
-    }
-
-    const res = statusResponse.result;
+    // Closed GeoJSON ring: [SW, NW, NE, SE, SW]
     return {
-      observation_id: `obs_fg_${statusResponse.activity_id}`,
-      site_id: siteId,
-      timestamp: res.observed_at,
-      temperature_c: res.temperature_c,
-      humidity_pct: res.humidity_pct,
-      wet_bulb_c: res.wet_bulb_c ?? 25.0,
-      apparent_temperature_c: res.apparent_temperature_c,
-      solar_irradiance: res.solar_irradiance ?? 800,
-      source: 'fortyguard',
-      freshness_seconds: 0,
-      confidence: 0.98,
-      activity_id: statusResponse.activity_id,
+      type: 'Polygon' as const,
+      coordinates: [
+        [
+          [minLon, minLat],
+          [minLon, maxLat],
+          [maxLon, maxLat],
+          [maxLon, minLat],
+          [minLon, minLat], // Closes ring
+        ],
+      ],
     };
   }
 
-  public getUsageMetrics() {
+  /**
+   * Submits a Heatmap task to FortyGuard Enterprise API (POST /v1/heatmap)
+   */
+  public async submitHeatmap(request: HeatmapRequest, correlationId?: string): Promise<AsyncSubmissionResponse> {
+    const validated = HeatmapRequestSchema.parse(request);
+    return await this.client.post<AsyncSubmissionResponse>(
+      '/v1/heatmap',
+      validated,
+      AsyncSubmissionResponseSchema,
+      correlationId
+    );
+  }
+
+  /**
+   * Submits an Environmental Parameters task to FortyGuard API (POST /v1/env_params)
+   */
+  public async submitEnvParams(request: EnvParamsRequest, correlationId?: string): Promise<AsyncSubmissionResponse> {
+    const validated = EnvParamsRequestSchema.parse(request);
+    return await this.client.post<AsyncSubmissionResponse>(
+      '/v1/env_params',
+      validated,
+      AsyncSubmissionResponseSchema,
+      correlationId
+    );
+  }
+
+  /**
+   * High-level operation: Fetches normalized thermal observation for a site using FortyGuard Heatmap.
+   */
+  public async fetchSiteHeatmapObservation(
+    site: Site,
+    options: {
+      datetime?: string;
+      granularity?: 60 | 80 | 100;
+      filterType?: 1 | 2;
+      startHour?: number;
+      endHour?: number;
+      correlationId?: string;
+    } = {}
+  ): Promise<{ observation: ThermalObservation; cacheHit: boolean }> {
+    const aoi = FortyGuardAdapter.generateSitePolygonAoi(site.latitude, site.longitude);
+    const cacheDatetime = options.datetime || 'latest';
+    const requestDatetime = options.datetime || new Date().toISOString();
+    const granularity = options.granularity || 80;
+    const filterType = options.filterType || 1;
+
+    const cacheKey = FortyGuardCache.generateKey('heatmap', {
+      lat: site.latitude,
+      lon: site.longitude,
+      aoi,
+      datetime: cacheDatetime,
+      granularity,
+      filterType,
+    });
+
+    const cached = this.cache.get(cacheKey);
+    if (cached.hit && cached.data && !cached.isStale) {
+      return {
+        observation: {
+          ...cached.data,
+          source: 'fortyguard_cache',
+          freshness_seconds: cached.ageSeconds || 0,
+        },
+        cacheHit: true,
+      };
+    }
+
+    const usageRecord: APIUsageRecord = {
+      id: `usg_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      provider: 'fortyguard',
+      endpoint: '/v1/heatmap',
+      activity_id: '',
+      submitted_at: new Date().toISOString(),
+      status: 'SUBMITTED',
+      cache_hit: false,
+      estimated_credit_cost: null, // As per instruction: null if not given as exact measured fact
+    };
+
+    try {
+      const submission = await this.submitHeatmap(
+        {
+          aoi,
+          datetime_spec: requestDatetime,
+          granularity_m: granularity,
+          filter_type: filterType,
+          start_hour: options.startHour,
+          end_hour: options.endHour,
+        },
+        options.correlationId
+      );
+
+      usageRecord.activity_id = submission.activity_id;
+      usageRecord.status = 'PROCESSING';
+
+      const activity = await this.poller.pollActivity(
+        submission.activity_id,
+        'heatmap',
+        submission.submitted_at,
+        options.correlationId
+      );
+
+      usageRecord.completed_at = activity.completed_at;
+      usageRecord.status = activity.status;
+      usageRecord.credits_used = activity.credits_used;
+
+      if (!activity.result) {
+        throw new Error(`FortyGuard activity ${activity.activity_id} completed without result payload.`);
+      }
+
+      const observation = normalizeFortyGuardResult(activity.result, {
+        siteId: site.site_id,
+        activityId: activity.activity_id,
+        isCached: false,
+      });
+
+      this.cache.set(cacheKey, observation);
+      this.usageLog.push(usageRecord);
+
+      return { observation, cacheHit: false };
+    } catch (err: any) {
+      usageRecord.status = 'FAILED';
+      usageRecord.error_code = err.errorCode || err.name || 'UNKNOWN_ERROR';
+      this.usageLog.push(usageRecord);
+      throw err;
+    }
+  }
+
+  /**
+   * Tests provider connectivity and endpoint discovery.
+   */
+  public async testConnection(): Promise<FortyGuardCapabilitySummary> {
+    return await FortyGuardCapabilities.discover(this.client);
+  }
+
+  public getUsageLog(): APIUsageRecord[] {
+    return [...this.usageLog];
+  }
+
+  public getProviderStatus() {
     return {
-      provider: 'FortyGuard Enterprise API (v1.0.0 Adapter)',
-      totalCreditsEstimated: this.totalCreditsUsed,
-      cacheEntries: this.cache.size,
+      provider: 'FortyGuard Enterprise API (v1.0.0)',
+      configured: this.client.isConfigured(),
+      apiKeyMasked: this.client.getMaskedApiKey(),
       offlineFallback: this.offlineFallback,
+      cacheStats: this.cache.getStats(),
+      totalApiCalls: this.usageLog.length,
+      successfulCalls: this.usageLog.filter((u) => u.status === 'COMPLETED').length,
+      failedCalls: this.usageLog.filter((u) => u.status === 'FAILED' || u.status === 'TIMED_OUT').length,
     };
   }
 }

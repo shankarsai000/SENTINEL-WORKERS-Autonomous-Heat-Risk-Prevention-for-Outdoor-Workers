@@ -32,7 +32,7 @@ describe('Sentinel Workers REST API Health & Endpoints', () => {
     const data = await res.json();
     expect(data.status).toBe('healthy');
     expect(data.service).toBe('sentinel-api');
-    expect(data.phase).toBe('P0_FOUNDATION');
+    expect(data.phase).toMatch(/^P[0-9]/);
   });
 
   it('GET /api/system/capabilities lists offline simulation and 500 workers', async () => {

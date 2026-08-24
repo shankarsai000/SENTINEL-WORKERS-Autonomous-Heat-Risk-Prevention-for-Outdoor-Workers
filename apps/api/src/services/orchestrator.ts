@@ -17,6 +17,8 @@ import pino from 'pino';
 
 const logger = pino({ name: 'sentinel-orchestrator' });
 
+export type ThermalDataMode = 'offline' | 'fortyguard' | 'hybrid';
+
 export class SentinelOrchestrator {
   private engine: OfflineSimulationEngine;
   private db: SentinelDatabase;
@@ -25,6 +27,7 @@ export class SentinelOrchestrator {
   private wsServer?: SentinelWebSocketServer;
   private fortyGuard: FortyGuardAdapter;
   private riskServiceUrl: string;
+  private thermalDataMode: ThermalDataMode;
   private workerExposureTracker: Map<string, { exposureMins: number; recoveryMins: number }> = new Map();
   private activeClusterIncidents: Map<string, Incident> = new Map();
 
@@ -33,17 +36,20 @@ export class SentinelOrchestrator {
     audit: AuditService,
     engine: OfflineSimulationEngine,
     wsServer?: SentinelWebSocketServer,
-    riskServiceUrl: string = process.env.RISK_SERVICE_URL || 'http://localhost:8000'
+    riskServiceUrl: string = process.env.RISK_SERVICE_URL || 'http://localhost:8000',
+    fortyGuardAdapter?: FortyGuardAdapter,
+    initialMode?: ThermalDataMode
   ) {
     this.db = db;
     this.audit = audit;
     this.engine = engine;
     this.wsServer = wsServer;
     this.guardrails = new PolicyGuardrails(DEFAULT_PHOENIX_POLICY);
-    this.fortyGuard = new FortyGuardAdapter({ offlineFallback: true });
+    this.fortyGuard = fortyGuardAdapter || new FortyGuardAdapter({ offlineFallback: true });
     this.riskServiceUrl = riskServiceUrl;
+    this.thermalDataMode = initialMode || (process.env.THERMAL_DATA_MODE as ThermalDataMode) || 'offline';
 
-    // Connect tick listener
+    // Connect tick listener for offline/hybrid simulation
     this.engine.onTick((tickResult: SimulationTickResult) => {
       this.handleSimulationTick(tickResult);
     });
@@ -53,18 +59,37 @@ export class SentinelOrchestrator {
     this.wsServer = wsServer;
   }
 
+  public getThermalDataMode(): ThermalDataMode {
+    return this.thermalDataMode;
+  }
+
+  public setThermalDataMode(mode: ThermalDataMode): void {
+    logger.info({ event: 'THERMAL_DATA_MODE_CHANGED', previous: this.thermalDataMode, new: mode });
+    this.thermalDataMode = mode;
+    this.audit.recordAuditEvent('SIMULATION_STATE_CHANGED', 'orchestrator_mode', {
+      mode,
+      timestamp: new Date().toISOString(),
+    });
+    this.broadcastSimulationStatus();
+  }
+
+  public getFortyGuardAdapter(): FortyGuardAdapter {
+    return this.fortyGuard;
+  }
+
   public getSimulationState(): SimulationState {
     return this.engine.getState();
   }
 
   public startSimulation(speedMultiplier: number = 1): void {
-    logger.info({ event: 'SIMULATION_START', speedMultiplier });
+    logger.info({ event: 'SIMULATION_START', speedMultiplier, mode: this.thermalDataMode });
     this.engine.start(speedMultiplier);
     this.broadcastSimulationStatus();
     this.audit.recordAuditEvent('SIMULATION_STATE_CHANGED', 'simulation_engine', {
       action: 'START',
       speedMultiplier,
       tick: this.engine.getState().current_tick,
+      mode: this.thermalDataMode,
     });
   }
 
@@ -107,88 +132,153 @@ export class SentinelOrchestrator {
     this.broadcastSimulationStatus();
   }
 
+  /**
+   * Fetches observation for a site using FortyGuard provider or hybrid fallback.
+   */
+  public async fetchSiteObservation(siteId: string): Promise<ThermalObservation> {
+    const sites = this.db.getSites();
+    const site = sites.find((s) => s.site_id === siteId);
+    if (!site) {
+      throw new Error(`Site ${siteId} not found in database.`);
+    }
+
+    if (this.thermalDataMode === 'offline') {
+      const step = this.engine.step();
+      const obs = step.observations.find((o) => o.site_id === siteId) || step.observations[0];
+      await this.processSingleObservation(obs, step.tick);
+      return obs;
+    }
+
+    try {
+      // In fortyguard or hybrid mode: try FortyGuard adapter
+      const result = await this.fortyGuard.fetchSiteHeatmapObservation(site);
+      const obs = result.observation;
+      await this.processSingleObservation(obs, this.engine.getState().current_tick);
+      return obs;
+    } catch (err: any) {
+      if (this.thermalDataMode === 'hybrid') {
+        logger.warn({
+          event: 'FORTYGUARD_HYBRID_FALLBACK',
+          siteId,
+          error: err.message,
+          msg: 'Falling back to deterministic simulation observation',
+        });
+        const step = this.engine.step();
+        const fallbackObs = step.observations.find((o) => o.site_id === siteId) || step.observations[0];
+        // Ensure source is explicitly marked as simulation
+        fallbackObs.source = 'simulation';
+        await this.processSingleObservation(fallbackObs, step.tick);
+        return fallbackObs;
+      }
+      throw err;
+    }
+  }
+
   public async handleSimulationTick(tickResult: SimulationTickResult): Promise<void> {
     const { tick, observations } = tickResult;
 
-    for (const obs of observations) {
-      // 1. Ingest & Persist Observation
-      this.db.saveObservation(obs);
-      this.audit.recordAuditEvent('OBSERVATION_INGESTED', obs.observation_id, {
-        site_id: obs.site_id,
-        temperature_c: obs.temperature_c,
-        humidity_pct: obs.humidity_pct,
-        wet_bulb_c: obs.wet_bulb_c,
-        solar_irradiance: obs.solar_irradiance,
-        tick,
-      });
+    for (const rawObs of observations) {
+      let activeObs = rawObs;
 
-      // Broadcast Observation
-      this.wsServer?.broadcast('THERMAL_OBSERVATION', obs);
-
-      // 2. Fetch workers assigned to this site
-      const workers = this.db.getWorkers(obs.site_id);
-      if (workers.length === 0) continue;
-
-      // Update exposure duration tracker
-      for (const w of workers) {
-        const current = this.workerExposureTracker.get(w.worker_id) || { exposureMins: 0, recoveryMins: 0 };
-        // Increment exposure by 15 mins per tick
-        current.exposureMins += 15;
-        this.workerExposureTracker.set(w.worker_id, current);
-      }
-
-      // 3. Evaluate Risk via Risk Service or fallback
-      const evaluatedRiskStates = await this.evaluateBatchRisk(workers, obs);
-
-      // 4. Check Guardrails and Policy
-      const processedRiskStates: RiskState[] = [];
-      const criticalWorkersInZone: string[] = [];
-
-      for (let i = 0; i < workers.length; i++) {
-        const worker = workers[i];
-        let risk = evaluatedRiskStates[i];
-
-        // Evaluate guardrails
-        const guardrailCheck = this.guardrails.checkEmergencyConditions(worker, risk, obs);
-        if (!guardrailCheck.passed && guardrailCheck.enforcedAction) {
-          // Hard policy intervention override
-          risk = {
-            ...risk,
-            score: Math.max(risk.score, 0.88),
-            level: 'CRITICAL',
-            reason_codes: [...risk.reason_codes, 'GUARDRAIL_EMERGENCY_OVERRIDE'],
-          };
-          this.issueAction(guardrailCheck.enforcedAction);
-        } else if (risk.level === 'HIGH' || risk.level === 'CRITICAL' || risk.level === 'ELEVATED') {
-          // Auto-trigger recommended action if needed
-          this.evaluateAndIssueWorkerAction(worker, risk, obs);
+      // In fortyguard or hybrid mode: attempt to enrich observation from provider
+      if (this.thermalDataMode === 'fortyguard' || this.thermalDataMode === 'hybrid') {
+        const sites = this.db.getSites();
+        const site = sites.find((s) => s.site_id === rawObs.site_id);
+        if (site) {
+          try {
+            const fgResult = await this.fortyGuard.fetchSiteHeatmapObservation(site);
+            activeObs = fgResult.observation;
+          } catch (err: any) {
+            if (this.thermalDataMode === 'fortyguard') {
+              logger.error({ event: 'FORTYGUARD_FETCH_FAILED', siteId: site.site_id, error: err.message });
+              continue; // In strict fortyguard mode, skip on failure
+            }
+            // In hybrid mode, continue with simulation observation
+            activeObs.source = 'simulation';
+          }
         }
-
-        if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
-          criticalWorkersInZone.push(worker.worker_id);
-        }
-
-        processedRiskStates.push(risk);
       }
 
-      // Save processed risk states
-      this.db.saveRiskStates(processedRiskStates);
-
-      // Broadcast risk states batch
-      this.wsServer?.broadcast('RISK_STATE_UPDATE', {
-        site_id: obs.site_id,
-        timestamp: obs.timestamp,
-        risk_states: processedRiskStates,
-      });
-
-      // 5. Cluster Incident Detection: If 3 or more workers at the same site reach HIGH/CRITICAL
-      if (criticalWorkersInZone.length >= 3) {
-        this.handleClusterIncident(obs.site_id, criticalWorkersInZone, obs.temperature_c);
-      }
+      await this.processSingleObservation(activeObs, tick);
     }
 
     // Broadcast simulation progress
     this.broadcastSimulationStatus();
+  }
+
+  private async processSingleObservation(obs: ThermalObservation, tick: number): Promise<void> {
+    // 1. Ingest & Persist Observation
+    this.db.saveObservation(obs);
+    this.audit.recordAuditEvent('OBSERVATION_INGESTED', obs.observation_id, {
+      site_id: obs.site_id,
+      temperature_c: obs.temperature_c,
+      humidity_pct: obs.humidity_pct,
+      wet_bulb_c: obs.wet_bulb_c,
+      solar_irradiance: obs.solar_irradiance,
+      source: obs.source,
+      tick,
+    });
+
+    // Broadcast Observation to Dashboard
+    this.wsServer?.broadcast('THERMAL_OBSERVATION', obs);
+
+    // 2. Fetch workers assigned to this site
+    const workers = this.db.getWorkers(obs.site_id);
+    if (workers.length === 0) return;
+
+    // Update exposure duration tracker
+    for (const w of workers) {
+      const current = this.workerExposureTracker.get(w.worker_id) || { exposureMins: 0, recoveryMins: 0 };
+      current.exposureMins += 15;
+      this.workerExposureTracker.set(w.worker_id, current);
+    }
+
+    // 3. Evaluate Risk via Risk Service or fallback
+    const evaluatedRiskStates = await this.evaluateBatchRisk(workers, obs);
+
+    // 4. Check Guardrails and Policy
+    const processedRiskStates: RiskState[] = [];
+    const criticalWorkersInZone: string[] = [];
+
+    for (let i = 0; i < workers.length; i++) {
+      const worker = workers[i];
+      let risk = evaluatedRiskStates[i];
+
+      // Evaluate guardrails
+      const guardrailCheck = this.guardrails.checkEmergencyConditions(worker, risk, obs);
+      if (!guardrailCheck.passed && guardrailCheck.enforcedAction) {
+        risk = {
+          ...risk,
+          score: Math.max(risk.score, 0.88),
+          level: 'CRITICAL',
+          reason_codes: [...risk.reason_codes, 'GUARDRAIL_EMERGENCY_OVERRIDE'],
+        };
+        this.issueAction(guardrailCheck.enforcedAction);
+      } else if (risk.level === 'HIGH' || risk.level === 'CRITICAL' || risk.level === 'ELEVATED') {
+        this.evaluateAndIssueWorkerAction(worker, risk, obs);
+      }
+
+      if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
+        criticalWorkersInZone.push(worker.worker_id);
+      }
+
+      processedRiskStates.push(risk);
+    }
+
+    // Save processed risk states
+    this.db.saveRiskStates(processedRiskStates);
+
+    // Broadcast risk states batch
+    this.wsServer?.broadcast('RISK_STATE_UPDATE', {
+      site_id: obs.site_id,
+      timestamp: obs.timestamp,
+      risk_states: processedRiskStates,
+    });
+
+    // 5. Cluster Incident Detection
+    if (criticalWorkersInZone.length >= 3) {
+      this.handleClusterIncident(obs.site_id, criticalWorkersInZone, obs.temperature_c);
+    }
   }
 
   private async evaluateBatchRisk(workers: Worker[], obs: ThermalObservation): Promise<RiskState[]> {
@@ -234,7 +324,7 @@ export class SentinelOrchestrator {
         return data.risk_states;
       }
     } catch (err) {
-      logger.warn({ event: 'RISK_SERVICE_HTTP_FALLBACK', msg: 'Using deterministic local fallback risk scoring' });
+      // Clean fallback to deterministic local logic without error spam
     }
 
     // Local deterministic fallback calculation
@@ -421,7 +511,6 @@ export class SentinelOrchestrator {
 
       this.wsServer?.broadcast('INCIDENT_EVENT', incident);
     } else {
-      // Update workers affected
       incident.workers_affected = Array.from(new Set([...incident.workers_affected, ...criticalWorkerIds]));
       this.db.saveIncident(incident);
       this.wsServer?.broadcast('INCIDENT_EVENT', incident);
@@ -430,6 +519,10 @@ export class SentinelOrchestrator {
 
   private broadcastSimulationStatus(): void {
     const state = this.engine.getState();
-    this.wsServer?.broadcast('SIMULATION_STATUS', state);
+    this.wsServer?.broadcast('SIMULATION_STATUS', {
+      ...state,
+      thermal_data_mode: this.thermalDataMode,
+      fortyguard_status: this.fortyGuard.getProviderStatus(),
+    });
   }
 }

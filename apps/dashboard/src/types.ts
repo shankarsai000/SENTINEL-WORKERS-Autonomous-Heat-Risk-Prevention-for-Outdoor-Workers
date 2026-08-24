@@ -35,7 +35,7 @@ export interface ThermalObservation {
   wet_bulb_c: number;
   apparent_temperature_c?: number;
   solar_irradiance: number;
-  source: 'simulation' | 'fortyguard' | 'sensor_fallback';
+  source: 'simulation' | 'fortyguard' | 'fortyguard_cache' | 'sensor_fallback';
   freshness_seconds: number;
   confidence: number;
   activity_id?: string;
@@ -112,4 +112,15 @@ export interface SimulationState {
   current_temp_c: number;
   current_humidity_pct: number;
   active_workers: number;
+  thermal_data_mode?: 'offline' | 'fortyguard' | 'hybrid';
+  fortyguard_status?: {
+    provider: string;
+    configured: boolean;
+    apiKeyMasked: string;
+    offlineFallback: boolean;
+    cacheStats: { size: number; hits: number; misses: number; hitRatio: number };
+    totalApiCalls: number;
+    successfulCalls: number;
+    failedCalls: number;
+  };
 }

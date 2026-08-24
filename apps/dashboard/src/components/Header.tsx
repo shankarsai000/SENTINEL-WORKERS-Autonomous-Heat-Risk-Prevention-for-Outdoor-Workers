@@ -1,5 +1,5 @@
 import React from 'react';
-import { Flame, Activity, ShieldCheck, Clock, Wifi, WifiOff } from 'lucide-react';
+import { Flame, Clock, Wifi, WifiOff, Globe, Radio } from 'lucide-react';
 import { SimulationState } from '../types.js';
 
 interface HeaderProps {
@@ -13,6 +13,31 @@ export const Header: React.FC<HeaderProps> = ({
   simulationState,
   totalWorkers,
 }) => {
+  const fgStatus = simulationState?.fortyguard_status;
+  const isFgConfigured = fgStatus?.configured ?? false;
+  const mode = simulationState?.thermal_data_mode || 'offline';
+
+  const getFgBadge = () => {
+    if (!isFgConfigured) {
+      return <span className="badge badge-fg-disabled">FG: OFFLINE READY</span>;
+    }
+    if (fgStatus && fgStatus.failedCalls > 0 && fgStatus.successfulCalls === 0) {
+      return <span className="badge badge-elevated">FG: DEGRADED</span>;
+    }
+    return <span className="badge badge-fg-connected">FG: CONNECTED</span>;
+  };
+
+  const getModeBadge = () => {
+    switch (mode) {
+      case 'fortyguard':
+        return <span className="badge badge-watch">MODE: FORTYGUARD</span>;
+      case 'hybrid':
+        return <span className="badge badge-elevated">MODE: HYBRID FAILOVER</span>;
+      default:
+        return <span className="badge badge-green">MODE: OFFLINE REPLAY</span>;
+    }
+  };
+
   return (
     <header className="ops-header">
       <div className="ops-logo">
@@ -22,7 +47,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="ops-logo-text">
           <h1>
             SENTINEL WORKERS
-            <span className="badge badge-watch">PHASE P0 FOUNDATION</span>
+            <span className="badge badge-watch">PHASE P1 FORTYGUARD</span>
           </h1>
           <p>Autonomous Heat-Risk Prevention & Environmental Intelligence</p>
         </div>
@@ -30,8 +55,11 @@ export const Header: React.FC<HeaderProps> = ({
 
       <div className="ops-telemetry">
         <div className="telemetry-item">
-          <span className="telemetry-label">Active Scenario</span>
-          <span className="telemetry-value">Phoenix Summer Heatwave</span>
+          <span className="telemetry-label">Provider Layer</span>
+          <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+            {getFgBadge()}
+            {getModeBadge()}
+          </div>
         </div>
 
         <div className="telemetry-item">

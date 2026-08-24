@@ -32,7 +32,7 @@ export type ActionOutcome =
 
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-export type ObservationSource = 'simulation' | 'fortyguard' | 'sensor_fallback';
+export type ObservationSource = 'simulation' | 'fortyguard' | 'fortyguard_cache' | 'sensor_fallback';
 
 export interface ConsentFlags {
   data_processing: boolean;

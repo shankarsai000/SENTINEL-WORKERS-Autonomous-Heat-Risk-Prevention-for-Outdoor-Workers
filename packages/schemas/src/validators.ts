@@ -41,7 +41,7 @@ export const ActionOutcomeSchema = z.enum([
 
 export const IncidentSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
-export const ObservationSourceSchema = z.enum(['simulation', 'fortyguard', 'sensor_fallback']);
+export const ObservationSourceSchema = z.enum(['simulation', 'fortyguard', 'fortyguard_cache', 'sensor_fallback']);
 
 export const ConsentFlagsSchema = z.object({
   data_processing: z.boolean(),

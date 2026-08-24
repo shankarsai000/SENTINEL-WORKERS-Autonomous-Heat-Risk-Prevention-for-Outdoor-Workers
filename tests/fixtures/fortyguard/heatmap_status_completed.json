@@ -1,0 +1,18 @@
+{
+  "activity_id": "act_hm_6891283a04ef",
+  "status": "COMPLETED",
+  "result": {
+    "location": {
+      "lat": 33.4484,
+      "lon": -112.0740
+    },
+    "temperature_c": 43.8,
+    "humidity_pct": 21.0,
+    "wet_bulb_c": 26.8,
+    "apparent_temperature_c": 45.2,
+    "solar_irradiance": 980.0,
+    "observed_at": "2026-08-24T12:02:15.000Z",
+    "granularity_m": 80
+  },
+  "credits_used": 5
+}

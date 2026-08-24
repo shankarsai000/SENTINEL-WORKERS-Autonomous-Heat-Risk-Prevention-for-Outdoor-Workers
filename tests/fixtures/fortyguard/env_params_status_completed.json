@@ -1,0 +1,17 @@
+{
+  "activity_id": "act_env_88123fa",
+  "status": "COMPLETED",
+  "result": {
+    "location": {
+      "lat": 33.4352,
+      "lon": -112.0101
+    },
+    "temperature_c": 41.2,
+    "humidity_pct": 24.0,
+    "wet_bulb_c": 25.4,
+    "apparent_temperature_c": 42.8,
+    "solar_irradiance": 920.0,
+    "observed_at": "2026-08-24T12:00:30.000Z"
+  },
+  "credits_used": 1
+}

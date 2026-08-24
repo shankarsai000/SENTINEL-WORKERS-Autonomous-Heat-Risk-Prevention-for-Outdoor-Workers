@@ -20,7 +20,8 @@
     "test:simulation": "vitest run tests/unit/simulation-engine.test.ts",
     "test:api": "vitest run tests/integration/api-health.test.ts",
     "test:e2e": "vitest run tests/integration/full-pipeline.test.ts",
-    "test:python": "powershell -Command \"pytest apps/risk-service/tests\"",
+    "test:fortyguard": "vitest run tests/unit/fortyguard-client.test.ts tests/unit/fortyguard-poller.test.ts tests/unit/fortyguard-cache.test.ts tests/unit/fortyguard-normalizer.test.ts tests/unit/fortyguard-security.test.ts tests/integration/fortyguard-hybrid-fallback.test.ts tests/integration/fortyguard-live.test.ts",
+    "test:python": "powershell -Command \"python -m pytest apps/risk-service/tests\"",
     "seed": "npm run seed --workspace=@sentinel/api"
   },
   "devDependencies": {

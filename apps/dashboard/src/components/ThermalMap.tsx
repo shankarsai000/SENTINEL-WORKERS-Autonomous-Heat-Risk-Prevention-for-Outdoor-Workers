@@ -1,5 +1,5 @@
 import React from 'react';
-import { MapPin, Sun, Droplets, Thermometer, Wind } from 'lucide-react';
+import { MapPin, Sun, Droplets, Thermometer, Database, Cloud, Radio } from 'lucide-react';
 import { Site, ThermalObservation } from '../types.js';
 
 interface ThermalMapProps {
@@ -15,6 +15,29 @@ export const ThermalMap: React.FC<ThermalMapProps> = ({
   selectedSiteId,
   onSelectSite,
 }) => {
+  const getProvenanceBadge = (source?: string, freshnessSeconds?: number) => {
+    switch (source) {
+      case 'fortyguard':
+        return (
+          <span className="badge badge-provenance-live">
+            <Radio size={10} style={{ display: 'inline' }} /> LIVE FORTYGUARD ({freshnessSeconds ?? 0}s)
+          </span>
+        );
+      case 'fortyguard_cache':
+        return (
+          <span className="badge badge-provenance-cached">
+            <Database size={10} style={{ display: 'inline' }} /> CACHED PROVIDER ({freshnessSeconds ?? 0}s)
+          </span>
+        );
+      default:
+        return (
+          <span className="badge badge-provenance-sim">
+            <Cloud size={10} style={{ display: 'inline' }} /> OFFLINE SIMULATION
+          </span>
+        );
+    }
+  };
+
   return (
     <div className="card">
       <div className="card-header">
@@ -23,7 +46,7 @@ export const ThermalMap: React.FC<ThermalMapProps> = ({
           Phoenix Metropolitan Construction Sites & Thermal Exposure Grid
         </h2>
         <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'JetBrains Mono' }}>
-          HYPERLOCAL INTELLIGENCE
+          HYPERLOCAL INTELLIGENCE LAYER
         </span>
       </div>
 
@@ -35,6 +58,9 @@ export const ThermalMap: React.FC<ThermalMapProps> = ({
             const humidity = obs ? obs.humidity_pct : 40;
             const wetBulb = obs ? obs.wet_bulb_c : 20.5;
             const solar = obs ? obs.solar_irradiance : 150;
+            const source = obs?.source || 'simulation';
+            const freshness = obs?.freshness_seconds ?? 0;
+            const activityId = obs?.activity_id;
 
             const isHighHeat = temp >= 42;
             const isCritical = temp >= 45;
@@ -54,13 +80,16 @@ export const ThermalMap: React.FC<ThermalMapProps> = ({
                     <div className="site-name">{site.name}</div>
                     <div className="site-zone">{site.zone_id} • {site.worker_count} Workers</div>
                   </div>
-                  {isCritical ? (
-                    <span className="badge badge-critical">CRITICAL HEAT</span>
-                  ) : isHighHeat ? (
-                    <span className="badge badge-high">HIGH HEAT</span>
-                  ) : (
-                    <span className="badge badge-watch">STABLE</span>
-                  )}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    {isCritical ? (
+                      <span className="badge badge-critical">CRITICAL HEAT</span>
+                    ) : isHighHeat ? (
+                      <span className="badge badge-high">HIGH HEAT</span>
+                    ) : (
+                      <span className="badge badge-watch">STABLE</span>
+                    )}
+                    {getProvenanceBadge(source, freshness)}
+                  </div>
                 </div>
 
                 <div className="site-telemetry-grid">
@@ -86,9 +115,13 @@ export const ThermalMap: React.FC<ThermalMapProps> = ({
                   </div>
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: '#64748b' }}>
-                  <span>Cooling Trailers: {site.cooling_resources.ac_trailers}</span>
-                  <span>Shade Stations: {site.cooling_resources.shade_stations}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.68rem', color: '#64748b' }}>
+                  <span>Cooling Trailers: {site.cooling_resources.ac_trailers} | Shades: {site.cooling_resources.shade_stations}</span>
+                  {activityId && (
+                    <span style={{ fontFamily: 'JetBrains Mono', color: '#06b6d4' }}>
+                      {activityId.substring(0, 14)}...
+                    </span>
+                  )}
                 </div>
               </div>
             );

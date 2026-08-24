@@ -71,14 +71,14 @@ export function createSentinelServer() {
   );
 
   // Mount API routers
-  app.use('/api', createHealthRouter());
+  app.use('/api', createHealthRouter(fortyGuardAdapter));
   app.use('/api', createSitesRouter(db));
   app.use('/api', createWorkersRouter(db));
   app.use('/api', createRiskRouter(db));
   app.use('/api', createEventsRouter(db, audit));
   app.use('/api', createActionsRouter(orchestrator, db));
   app.use('/api', createSimulationRouter(orchestrator));
-  app.use('/api', createFortyGuardRouter(fortyGuardAdapter));
+  app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator));
 
   // Error handling middleware
   app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
