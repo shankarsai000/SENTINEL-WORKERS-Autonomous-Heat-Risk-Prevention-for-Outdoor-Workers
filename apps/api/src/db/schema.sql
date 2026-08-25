@@ -76,16 +76,77 @@ CREATE TABLE IF NOT EXISTS actions (
   worker_id TEXT,
   site_id TEXT NOT NULL,
   action_type TEXT NOT NULL,
+  priority TEXT,
+  status TEXT,
+  risk_state_id TEXT,
+  prediction_id TEXT,
+  policy_id TEXT,
   policy_version TEXT NOT NULL,
+  decision_mode TEXT,
   issued_at TEXT NOT NULL,
+  approved_at TEXT,
+  dispatched_at TEXT,
   delivered_at TEXT,
+  ack_deadline TEXT,
   acknowledged_at TEXT,
-  outcome TEXT NOT NULL,
+  completed_at TEXT,
+  outcome TEXT,
   message TEXT NOT NULL,
   recommended_rest_minutes INTEGER,
   actor TEXT NOT NULL,
+  override_by TEXT,
+  override_at TEXT,
   override_reason TEXT,
+  idempotency_key TEXT,
+  delivery_id TEXT,
+  delivery_status TEXT,
+  reason_codes TEXT,
+  evidence_refs TEXT,
+  is_simulated INTEGER,
   FOREIGN KEY (site_id) REFERENCES sites(site_id)
+);
+
+CREATE TABLE IF NOT EXISTS action_deliveries (
+  delivery_id TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL,
+  provider TEXT NOT NULL,
+  channel TEXT NOT NULL,
+  recipient_ref TEXT NOT NULL,
+  status TEXT NOT NULL,
+  attempt_count INTEGER NOT NULL,
+  sent_at TEXT NOT NULL,
+  delivered_at TEXT,
+  failed_at TEXT,
+  failure_code TEXT,
+  is_simulated INTEGER NOT NULL,
+  FOREIGN KEY (action_id) REFERENCES actions(action_id)
+);
+
+CREATE TABLE IF NOT EXISTS action_acknowledgements (
+  ack_id TEXT PRIMARY KEY,
+  action_id TEXT NOT NULL,
+  actor_type TEXT NOT NULL,
+  actor_ref TEXT NOT NULL,
+  acknowledged_at TEXT NOT NULL,
+  source TEXT NOT NULL,
+  note TEXT,
+  FOREIGN KEY (action_id) REFERENCES actions(action_id)
+);
+
+CREATE TABLE IF NOT EXISTS escalations (
+  escalation_id TEXT PRIMARY KEY,
+  worker_id TEXT,
+  site_id TEXT NOT NULL,
+  action_id TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  reason_codes TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL,
+  escalated_to TEXT,
+  resolution_note TEXT,
+  FOREIGN KEY (action_id) REFERENCES actions(action_id)
 );
 
 CREATE TABLE IF NOT EXISTS incidents (

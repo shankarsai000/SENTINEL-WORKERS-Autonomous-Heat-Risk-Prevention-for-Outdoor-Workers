@@ -9,12 +9,20 @@ import {
   DecisionEvent,
   PredictiveRiskState,
   PredictionEvent,
+  ActionDecision,
 } from '@sentinel/schemas';
 import { OfflineSimulationEngine, SimulationTickResult } from '@sentinel/simulation';
 import { PolicyGuardrails, DEFAULT_PHOENIX_POLICY, PolicyLoader } from '@sentinel/policy';
 import { FortyGuardAdapter } from '@sentinel/fortyguard-provider';
 import { ContextualRiskEngine, buildWorkerRiskContext, buildSiteRiskContext, calculateZoneClusterContext } from '@sentinel/risk-engine';
 import { ShortHorizonRiskPredictor } from '@sentinel/prediction-engine';
+import {
+  ActionPlanner,
+  PolicyGate,
+  ActionExecutor,
+  ActionDeduplicationService,
+  EscalationEvaluator,
+} from '@sentinel/action-engine';
 import { SentinelDatabase } from '../db/database.js';
 import { AuditService } from './audit-service.js';
 import { SentinelWebSocketServer } from './websocket-server.js';
@@ -33,6 +41,8 @@ export class SentinelOrchestrator {
   private fortyGuard: FortyGuardAdapter;
   private riskEngine: ContextualRiskEngine;
   private predictor: ShortHorizonRiskPredictor;
+  private actionExecutor: ActionExecutor;
+  private dedupeService: ActionDeduplicationService;
   private riskServiceUrl: string;
   private thermalDataMode: ThermalDataMode;
   private workerExposureTracker: Map<string, { exposureMins: number; recoveryMins: number }> = new Map();
@@ -47,7 +57,9 @@ export class SentinelOrchestrator {
     riskServiceUrl: string = process.env.RISK_SERVICE_URL || 'http://localhost:8000',
     fortyGuardAdapter?: FortyGuardAdapter,
     initialMode?: ThermalDataMode,
-    predictor?: ShortHorizonRiskPredictor
+    predictor?: ShortHorizonRiskPredictor,
+    actionExecutor?: ActionExecutor,
+    dedupeService?: ActionDeduplicationService
   ) {
     this.db = db;
     this.audit = audit;
@@ -57,6 +69,8 @@ export class SentinelOrchestrator {
     this.fortyGuard = fortyGuardAdapter || new FortyGuardAdapter({ offlineFallback: true });
     this.riskEngine = new ContextualRiskEngine(PolicyLoader.getPolicy());
     this.predictor = predictor || new ShortHorizonRiskPredictor();
+    this.actionExecutor = actionExecutor || new ActionExecutor();
+    this.dedupeService = dedupeService || new ActionDeduplicationService();
     this.riskServiceUrl = riskServiceUrl;
     this.thermalDataMode = initialMode || (process.env.THERMAL_DATA_MODE as ThermalDataMode) || 'offline';
 
@@ -68,6 +82,22 @@ export class SentinelOrchestrator {
 
   public setWebSocketServer(wsServer: SentinelWebSocketServer): void {
     this.wsServer = wsServer;
+  }
+
+  public getAuditService(): AuditService {
+    return this.audit;
+  }
+
+  public getWebSocketServer(): SentinelWebSocketServer | undefined {
+    return this.wsServer;
+  }
+
+  public getActionExecutor(): ActionExecutor {
+    return this.actionExecutor;
+  }
+
+  public getDedupeService(): ActionDeduplicationService {
+    return this.dedupeService;
   }
 
   public getThermalDataMode(): ThermalDataMode {
@@ -221,6 +251,8 @@ export class SentinelOrchestrator {
   }
 
   private async processSingleObservation(obs: ThermalObservation, tick: number): Promise<void> {
+    const policy = PolicyLoader.getPolicy();
+
     // 1. Ingest & Persist Observation
     this.db.saveObservation(obs);
 
@@ -283,34 +315,17 @@ export class SentinelOrchestrator {
     // 4. Save Decision Events Batch
     this.db.saveDecisionEvents(evalResult.decisionEvents);
 
-    // 5. Check Emergency Conditions and Action Dispatch
-    const criticalWorkersInZone: string[] = [];
-    for (let i = 0; i < workers.length; i++) {
-      const worker = workers[i];
-      const risk = evalResult.riskStates[i];
-
-      if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
-        criticalWorkersInZone.push(worker.worker_id);
-      }
-
-      if (risk.level === 'CRITICAL') {
-        this.evaluateAndIssueWorkerAction(worker, risk, obs);
-      } else if (risk.level === 'HIGH' || risk.level === 'ELEVATED') {
-        this.evaluateAndIssueWorkerAction(worker, risk, obs);
-      }
-    }
-
-    // 6. Save Processed Risk States to Database
+    // 5. Save Processed Risk States to Database
     this.db.saveRiskStates(evalResult.riskStates);
 
-    // 7. Broadcast Risk States Batch to Dashboard
+    // 6. Broadcast Risk States Batch to Dashboard
     this.wsServer?.broadcast('RISK_STATE_UPDATE', {
       site_id: obs.site_id,
       timestamp: obs.timestamp,
       risk_states: evalResult.riskStates,
     });
 
-    // 8. Phase P3 Short-Horizon Prediction Pipeline
+    // 7. Phase P3 Short-Horizon Prediction Pipeline
     const workerContexts = workers.map((w) =>
       buildWorkerRiskContext(w, {
         currentTime: obs.timestamp,
@@ -368,103 +383,145 @@ export class SentinelOrchestrator {
       });
     }
 
-    // 9. Cluster Incident Detection
+    // 8. Phase P4 Safety-Constrained Autonomous Action Loop
+    const criticalWorkersInZone: string[] = [];
+
+    for (let i = 0; i < workers.length; i++) {
+      const worker = workers[i];
+      const risk = evalResult.riskStates[i];
+      const pred = predResult.predictions[i] || null;
+      const workerCtx = workerContexts[i];
+
+      if (risk.level === 'HIGH' || risk.level === 'CRITICAL') {
+        criticalWorkersInZone.push(worker.worker_id);
+      }
+
+      // Only evaluate action planning if worker is not in normal Green baseline or is flagged early-warning
+      if (risk.level !== 'GREEN' || pred?.early_warning) {
+        const plan = ActionPlanner.planActions({
+          currentRisk: risk,
+          predictedRisk: pred,
+          workerCtx,
+          siteCtx,
+          policy,
+        });
+
+        const selectedOption = plan.recommended_action;
+
+        const gateResult = PolicyGate.evaluate({
+          candidate: selectedOption,
+          currentRisk: risk,
+          predictedRisk: pred,
+          workerCtx,
+          siteCtx,
+          policy,
+        });
+
+        const decision: ActionDecision = {
+          action_id: `act_${Date.now()}_${worker.worker_id}`,
+          worker_id: worker.worker_id,
+          site_id: obs.site_id,
+          created_at: obs.timestamp,
+          risk_state_id: `${risk.worker_id}_${risk.timestamp}`,
+          prediction_id: pred?.prediction_id,
+          action_type: selectedOption.action_type,
+          priority: selectedOption.priority,
+          reason_codes: selectedOption.reason_codes,
+          evidence_refs: {
+            current_risk_level: risk.level,
+            current_risk_score: risk.score,
+            predicted_risk_level: pred?.predicted_risk_level,
+            expected_time_to_threshold_minutes: pred?.expected_time_to_threshold_minutes,
+          },
+          policy_id: policy.policy_id,
+          policy_version: policy.version,
+          selected_by: risk.level === 'CRITICAL' ? 'EMERGENCY_GUARDRAIL' : 'AUTONOMOUS_POLICY_PLANNER',
+          decision_mode: gateResult.decision_mode,
+          confidence: risk.confidence,
+          requires_acknowledgement: gateResult.requires_acknowledgement,
+          ack_deadline: gateResult.requires_acknowledgement
+            ? new Date(new Date(obs.timestamp).getTime() + gateResult.ack_deadline_minutes * 60000).toISOString()
+            : undefined,
+          allowed: gateResult.allowed,
+          rejected_reason: gateResult.rejected_reason,
+          idempotency_key: this.dedupeService.generateIdempotencyKey(
+            worker.worker_id,
+            selectedOption.action_type,
+            policy.version,
+            obs.timestamp,
+            gateResult.cooldown_minutes
+          ),
+          message: selectedOption.message_template,
+          recommended_rest_minutes: selectedOption.recommended_rest_minutes,
+        };
+
+        const execResult = await this.actionExecutor.execute({ decision, dedupeService: this.dedupeService });
+
+        // Persist Action and Delivery only if not deduplicated
+        if (!execResult.deduplicated) {
+          this.db.saveAction(execResult.action);
+          if (execResult.delivery) {
+            this.db.saveActionDelivery(execResult.delivery);
+          }
+          // Broadcast Action Event to Dashboard
+          this.wsServer?.broadcast('ACTION_EVENT', execResult.action);
+        }
+
+        // Record Audit Events (including deduplicated audit record)
+        for (const ev of execResult.audit_events) {
+          this.audit.recordAuditEvent(
+            ev.event_type === 'action.deduplicated' ? 'ACTION_DEDUPLICATED' : 'ACTION_ISSUED',
+            execResult.action.action_id,
+            ev.details
+          );
+        }
+      }
+    }
+
+    // 9. Check unacknowledged active actions for deadline expiration
+    const activeActions = this.db.getActions({ status: 'ACK_PENDING', limit: 50 });
+    for (const act of activeActions) {
+      const escResult = EscalationEvaluator.evaluateDeadline(act, obs.timestamp);
+      if (escResult.is_expired && escResult.escalation) {
+        this.db.saveAction(escResult.action);
+        this.db.saveEscalation(escResult.escalation);
+
+        for (const ev of escResult.audit_events) {
+          this.audit.recordAuditEvent('INCIDENT_ESCALATED', escResult.action.action_id, ev.details);
+        }
+
+        this.wsServer?.broadcast('ACTION_EVENT', escResult.action);
+        this.wsServer?.broadcast('INCIDENT_EVENT', {
+          incident_id: escResult.escalation.escalation_id,
+          zone_id: `ZONE-${escResult.action.site_id}`,
+          site_id: escResult.action.site_id,
+          severity: escResult.escalation.severity,
+          opened_at: escResult.escalation.created_at,
+          workers_affected: escResult.action.worker_id ? [escResult.action.worker_id] : [],
+          owner: escResult.escalation.escalated_to || 'Supervisor',
+          summary: `Action '${escResult.action.action_type}' for worker ${escResult.action.worker_id} exceeded acknowledgement deadline. Escalated to supervisor.`,
+          status: 'OPEN',
+        });
+      }
+    }
+
+    // 10. Cluster Incident Detection
     if (criticalWorkersInZone.length >= 3) {
       this.handleClusterIncident(obs.site_id, criticalWorkersInZone, obs.temperature_c);
     }
   }
 
-  private evaluateAndIssueWorkerAction(worker: Worker, risk: RiskState, obs: ThermalObservation): void {
-    let actionType: Action['action_type'] = 'MONITOR';
-    let message = '';
-    let restMins = 0;
-
-    if (risk.level === 'CRITICAL') {
-      actionType = 'STOP_WORK';
-      message = `CRITICAL ALERT: Ambient ${obs.temperature_c}°C / Risk score ${risk.score.toFixed(2)}. Mandatory work halt. Report to AC cooling trailer immediately.`;
-      restMins = 60;
-    } else if (risk.level === 'HIGH') {
-      actionType = 'MANDATORY_REST';
-      message = `HIGH RISK WARNING: Task intensity ${worker.task_intensity}, exposure ${risk.exposure_duration_mins}m. Mandatory 20-min shaded hydration break required.`;
-      restMins = 20;
-    } else if (risk.level === 'ELEVATED') {
-      actionType = 'SHADED_BREAK';
-      message = `ELEVATED HEAT LOAD: Pre-emptive 10-minute shade break + 500ml water intake advised.`;
-      restMins = 10;
-    } else if (risk.level === 'WATCH') {
-      actionType = 'HYDRATION_REMINDER';
-      message = `WATCH NOTICE: Increasing temperature (${obs.temperature_c}°C). Maintain standard hydration schedule.`;
-      restMins = 0;
-    }
-
-    if (actionType !== 'MONITOR') {
-      const action: Action = {
-        action_id: `act_${Date.now()}_${worker.worker_id}`,
-        worker_id: worker.worker_id,
-        site_id: worker.site_id,
-        action_type: actionType,
-        policy_version: risk.policy_version || '1.0.0',
-        issued_at: new Date().toISOString(),
-        outcome: 'PENDING',
-        message,
-        recommended_rest_minutes: restMins,
-        actor: 'AutonomousActionAgent',
-      };
-
-      this.issueAction(action);
-    }
-  }
-
-  public issueAction(action: Action): void {
-    this.db.saveAction(action);
-
-    this.audit.recordDecisionEvent({
-      actor: action.actor,
-      input_refs: {
-        worker_id: action.worker_id,
-        site_id: action.site_id,
-      },
-      decision: `ISSUED_${action.action_type}`,
-      explanation: action.message,
-      policy_version: action.policy_version,
-    });
-
-    this.wsServer?.broadcast('ACTION_EVENT', action);
-  }
-
-  public acknowledgeAction(actionId: string, actor: string = 'Supervisor'): Action | null {
-    const actions = this.db.getRecentActions(100);
-    const target = actions.find((a) => a.action_id === actionId);
-    if (!target) return null;
-
-    const updated: Action = {
-      ...target,
-      outcome: 'ACKNOWLEDGED',
-      acknowledged_at: new Date().toISOString(),
-      actor,
-    };
-
-    this.db.saveAction(updated);
-
-    this.audit.recordAuditEvent('ACTION_ACKNOWLEDGED', actionId, {
-      actor,
-      acknowledged_at: updated.acknowledged_at,
-    });
-
-    this.wsServer?.broadcast('ACTION_EVENT', updated);
-    return updated;
-  }
-
   public overrideAction(actionId: string, reason: string, actor: string = 'Supervisor'): Action | null {
-    const actions = this.db.getRecentActions(100);
-    const target = actions.find((a) => a.action_id === actionId);
-    if (!target) return null;
+    const action = this.db.getActionById(actionId);
+    if (!action) return null;
 
     const updated: Action = {
-      ...target,
+      ...action,
+      status: 'OVERRIDDEN',
       outcome: 'OVERRIDDEN',
+      override_by: actor,
+      override_at: new Date().toISOString(),
       override_reason: reason,
-      actor,
     };
 
     this.db.saveAction(updated);
@@ -472,7 +529,7 @@ export class SentinelOrchestrator {
     this.audit.recordAuditEvent('ACTION_OVERRIDDEN', actionId, {
       actor,
       reason,
-      timestamp: new Date().toISOString(),
+      timestamp: updated.override_at,
     });
 
     this.wsServer?.broadcast('ACTION_EVENT', updated);

@@ -11,6 +11,7 @@
     "seed": "tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@sentinel/action-engine": "*",
     "@sentinel/fortyguard-provider": "*",
     "@sentinel/policy": "*",
     "@sentinel/prediction-engine": "*",

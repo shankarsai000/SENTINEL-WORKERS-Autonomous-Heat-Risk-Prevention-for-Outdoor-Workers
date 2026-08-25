@@ -14,6 +14,10 @@ import {
   PredictiveRiskState,
   PredictionEvent,
   ModelVersion,
+  ActionDecision,
+  ActionDelivery,
+  ActionAcknowledgement,
+  EscalationDecision,
 } from '@sentinel/schemas';
 import { LogisticRegressionPredictionModel } from '@sentinel/prediction-engine';
 import { BaselineDeterministicModel } from '@sentinel/prediction-engine';
@@ -226,8 +230,76 @@ export class SentinelDatabase {
       } catch (_) {}
     }
 
-    // Initialize P3 Tables if not present
+    const actionCols = [
+      'priority TEXT',
+      'status TEXT',
+      'risk_state_id TEXT',
+      'prediction_id TEXT',
+      'policy_id TEXT',
+      'decision_mode TEXT',
+      'approved_at TEXT',
+      'dispatched_at TEXT',
+      'ack_deadline TEXT',
+      'completed_at TEXT',
+      'override_by TEXT',
+      'override_at TEXT',
+      'idempotency_key TEXT',
+      'delivery_id TEXT',
+      'delivery_status TEXT',
+      'reason_codes TEXT',
+      'evidence_refs TEXT',
+      'is_simulated INTEGER',
+    ];
+    for (const col of actionCols) {
+      try {
+        this.db.exec(`ALTER TABLE actions ADD COLUMN ${col};`);
+      } catch (_) {}
+    }
+
+    // Initialize P3 & P4 Tables if not present
     this.db.exec(`
+      CREATE TABLE IF NOT EXISTS action_deliveries (
+        delivery_id TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        channel TEXT NOT NULL,
+        recipient_ref TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempt_count INTEGER NOT NULL,
+        sent_at TEXT NOT NULL,
+        delivered_at TEXT,
+        failed_at TEXT,
+        failure_code TEXT,
+        is_simulated INTEGER NOT NULL,
+        FOREIGN KEY (action_id) REFERENCES actions(action_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS action_acknowledgements (
+        ack_id TEXT PRIMARY KEY,
+        action_id TEXT NOT NULL,
+        actor_type TEXT NOT NULL,
+        actor_ref TEXT NOT NULL,
+        acknowledged_at TEXT NOT NULL,
+        source TEXT NOT NULL,
+        note TEXT,
+        FOREIGN KEY (action_id) REFERENCES actions(action_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS escalations (
+        escalation_id TEXT PRIMARY KEY,
+        worker_id TEXT,
+        site_id TEXT NOT NULL,
+        action_id TEXT NOT NULL,
+        severity TEXT NOT NULL,
+        reason_codes TEXT NOT NULL,
+        policy_id TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        escalated_to TEXT,
+        resolution_note TEXT,
+        FOREIGN KEY (action_id) REFERENCES actions(action_id)
+      );
       CREATE TABLE IF NOT EXISTS predictive_risk_states (
         prediction_id TEXT PRIMARY KEY,
         worker_id TEXT NOT NULL,
@@ -564,13 +636,17 @@ export class SentinelDatabase {
     }));
   }
 
+
   public saveAction(action: Action): void {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO actions (
-        action_id, worker_id, site_id, action_type, policy_version,
-        issued_at, delivered_at, acknowledged_at, outcome, message,
-        recommended_rest_minutes, actor, override_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        action_id, worker_id, site_id, action_type, priority, status,
+        risk_state_id, prediction_id, policy_id, policy_version, decision_mode,
+        issued_at, approved_at, dispatched_at, delivered_at, ack_deadline,
+        acknowledged_at, completed_at, outcome, message, recommended_rest_minutes,
+        actor, override_by, override_at, override_reason, idempotency_key,
+        delivery_id, delivery_status, reason_codes, evidence_refs, is_simulated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -578,25 +654,195 @@ export class SentinelDatabase {
       action.worker_id ?? null,
       action.site_id,
       action.action_type,
+      action.priority ?? 'MEDIUM',
+      action.status ?? 'DELIVERED',
+      action.risk_state_id ?? null,
+      action.prediction_id ?? null,
+      action.policy_id ?? 'demo-construction-v1',
       action.policy_version,
+      action.decision_mode ?? 'AUTONOMOUS',
       action.issued_at,
+      action.approved_at ?? null,
+      action.dispatched_at ?? null,
       action.delivered_at ?? null,
+      action.ack_deadline ?? null,
       action.acknowledged_at ?? null,
+      action.completed_at ?? null,
       action.outcome ?? 'PENDING',
       action.message,
       action.recommended_rest_minutes ?? null,
       action.actor,
-      action.override_reason ?? null
+      action.override_by ?? null,
+      action.override_at ?? null,
+      action.override_reason ?? null,
+      action.idempotency_key ?? null,
+      action.delivery_id ?? null,
+      action.delivery_status ?? null,
+      action.reason_codes ? JSON.stringify(action.reason_codes) : null,
+      action.evidence_refs ? JSON.stringify(action.evidence_refs) : null,
+      action.is_simulated ? 1 : 0
     );
   }
 
   public getRecentActions(limit: number = 50): Action[] {
+    return this.getActions({ limit });
+  }
+
+  public getActions(options?: {
+    worker_id?: string;
+    site_id?: string;
+    status?: string;
+    limit?: number;
+  }): Action[] {
+    let sql = 'SELECT * FROM actions WHERE 1=1';
+    const params: any[] = [];
+
+    if (options?.worker_id) {
+      sql += ' AND worker_id = ?';
+      params.push(options.worker_id);
+    }
+    if (options?.site_id) {
+      sql += ' AND site_id = ?';
+      params.push(options.site_id);
+    }
+    if (options?.status) {
+      sql += ' AND status = ?';
+      params.push(options.status);
+    }
+
+    sql += ' ORDER BY issued_at DESC LIMIT ?';
+    params.push(options?.limit || 50);
+
+    const stmt = this.db.prepare(sql);
+    const rows = stmt.all(...params) as any[];
+
+    return rows.map((r) => this.mapActionRow(r));
+  }
+
+  public getActionById(actionId: string): Action | null {
+    const stmt = this.db.prepare('SELECT * FROM actions WHERE action_id = ?');
+    const row = stmt.get(actionId) as any;
+    return row ? this.mapActionRow(row) : null;
+  }
+
+  private mapActionRow(r: any): Action {
+    return {
+      ...r,
+      is_simulated: Boolean(r.is_simulated),
+      reason_codes: r.reason_codes ? JSON.parse(r.reason_codes) : [],
+      evidence_refs: r.evidence_refs ? JSON.parse(r.evidence_refs) : {},
+    };
+  }
+
+  public saveActionDelivery(delivery: ActionDelivery): void {
     const stmt = this.db.prepare(`
-      SELECT * FROM actions
-      ORDER BY issued_at DESC
-      LIMIT ?
+      INSERT OR REPLACE INTO action_deliveries (
+        delivery_id, action_id, provider, channel, recipient_ref,
+        status, attempt_count, sent_at, delivered_at, failed_at,
+        failure_code, is_simulated
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    return stmt.all(limit) as Action[];
+
+    stmt.run(
+      delivery.delivery_id,
+      delivery.action_id,
+      delivery.provider,
+      delivery.channel,
+      delivery.recipient_ref,
+      delivery.status,
+      delivery.attempt_count,
+      delivery.sent_at,
+      delivery.delivered_at ?? null,
+      delivery.failed_at ?? null,
+      delivery.failure_code ?? null,
+      delivery.is_simulated ? 1 : 0
+    );
+  }
+
+  public getDeliveriesForAction(actionId: string): ActionDelivery[] {
+    const stmt = this.db.prepare('SELECT * FROM action_deliveries WHERE action_id = ? ORDER BY sent_at DESC');
+    const rows = stmt.all(actionId) as any[];
+    return rows.map((r) => ({
+      ...r,
+      is_simulated: Boolean(r.is_simulated),
+    }));
+  }
+
+  public saveActionAcknowledgement(ack: ActionAcknowledgement): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO action_acknowledgements (
+        ack_id, action_id, actor_type, actor_ref, acknowledged_at, source, note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      ack.ack_id,
+      ack.action_id,
+      ack.actor_type,
+      ack.actor_ref,
+      ack.acknowledged_at,
+      ack.source,
+      ack.note ?? null
+    );
+  }
+
+  public getAcknowledgementsForAction(actionId: string): ActionAcknowledgement[] {
+    const stmt = this.db.prepare('SELECT * FROM action_acknowledgements WHERE action_id = ? ORDER BY acknowledged_at DESC');
+    return stmt.all(actionId) as ActionAcknowledgement[];
+  }
+
+  public saveEscalation(esc: EscalationDecision): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO escalations (
+        escalation_id, worker_id, site_id, action_id, severity,
+        reason_codes, policy_id, policy_version, created_at, status,
+        escalated_to, resolution_note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      esc.escalation_id,
+      esc.worker_id ?? null,
+      esc.site_id,
+      esc.action_id,
+      esc.severity,
+      JSON.stringify(esc.reason_codes),
+      esc.policy_id,
+      esc.policy_version,
+      esc.created_at,
+      esc.status,
+      esc.escalated_to ?? null,
+      esc.resolution_note ?? null
+    );
+  }
+
+  public getEscalations(limit: number = 50): EscalationDecision[] {
+    const stmt = this.db.prepare('SELECT * FROM escalations ORDER BY created_at DESC LIMIT ?');
+    const rows = stmt.all(limit) as any[];
+    return rows.map((r) => ({
+      ...r,
+      reason_codes: r.reason_codes ? JSON.parse(r.reason_codes) : [],
+    }));
+  }
+
+  public getEscalationById(escalationId: string): EscalationDecision | null {
+    const stmt = this.db.prepare('SELECT * FROM escalations WHERE escalation_id = ?');
+    const row = stmt.get(escalationId) as any;
+    if (!row) return null;
+    return {
+      ...row,
+      reason_codes: row.reason_codes ? JSON.parse(row.reason_codes) : [],
+    };
+  }
+
+  public updateEscalation(escalationId: string, status: EscalationDecision['status'], note?: string): EscalationDecision | null {
+    const stmt = this.db.prepare(`
+      UPDATE escalations
+      SET status = ?, resolution_note = ?
+      WHERE escalation_id = ?
+    `);
+    stmt.run(status, note ?? null, escalationId);
+    return this.getEscalationById(escalationId);
   }
 
   public getIncidents(): Incident[] {

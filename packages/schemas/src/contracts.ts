@@ -16,19 +16,47 @@ export type RiskLevel = 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
 export type ActionType =
   | 'MONITOR'
   | 'HYDRATION_REMINDER'
+  | 'SHADE_RECOMMENDATION'
+  | 'RECOVERY_BREAK'
+  | 'RELOCATE_TO_COOLING'
+  | 'MODIFY_WORK'
+  | 'STOP_WORK'
+  | 'SUPERVISOR_REVIEW'
+  | 'SUPERVISOR_ACK_REQUIRED'
+  | 'ESCALATE'
+  | 'EMERGENCY_PROTECTIVE_ACTION'
   | 'SHADED_BREAK'
   | 'MANDATORY_REST'
   | 'RELOCATE'
-  | 'STOP_WORK'
   | 'SUPERVISOR_ALERT'
   | 'EMERGENCY_ESCALATION';
+
+export type ActionStatus =
+  | 'PROPOSED'
+  | 'POLICY_REVIEW'
+  | 'APPROVED'
+  | 'REJECTED'
+  | 'DISPATCHING'
+  | 'DELIVERED'
+  | 'DELIVERY_FAILED'
+  | 'ACK_PENDING'
+  | 'ACKNOWLEDGED'
+  | 'OVERRIDDEN'
+  | 'EXPIRED'
+  | 'ESCALATED'
+  | 'COMPLETED';
+
+export type ActionPriority = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'EMERGENCY';
 
 export type ActionOutcome =
   | 'PENDING'
   | 'DELIVERED_SIMULATED'
   | 'ACKNOWLEDGED'
   | 'OVERRIDDEN'
-  | 'EXPIRED';
+  | 'EXPIRED'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'ESCALATED';
 
 export type IncidentSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
@@ -168,20 +196,103 @@ export interface RiskState {
   exposure_duration_mins: number;
 }
 
+export interface ActionDecision {
+  action_id: string;
+  worker_id?: string;
+  site_id: string;
+  created_at: string;
+  risk_state_id?: string;
+  prediction_id?: string;
+  action_type: ActionType;
+  priority: ActionPriority;
+  reason_codes: string[];
+  evidence_refs: Record<string, unknown>;
+  policy_id: string;
+  policy_version: string;
+  selected_by: 'AUTONOMOUS_POLICY_PLANNER' | 'SUPERVISOR_DIRECT' | 'EMERGENCY_GUARDRAIL';
+  decision_mode: 'AUTONOMOUS' | 'SUPERVISOR_REQUIRED' | 'EMERGENCY_AUTO';
+  confidence: number;
+  requires_acknowledgement: boolean;
+  ack_deadline?: string;
+  allowed: boolean;
+  rejected_reason?: string;
+  idempotency_key: string;
+  message: string;
+  recommended_rest_minutes?: number;
+}
+
+export interface ActionDelivery {
+  delivery_id: string;
+  action_id: string;
+  provider: 'SIMULATED_SMS' | 'TWILIO_SMS' | 'CONSOLE_ALERT';
+  channel: CommunicationChannel;
+  recipient_ref: string;
+  status: 'PENDING' | 'DISPATCHED' | 'DELIVERED' | 'FAILED';
+  attempt_count: number;
+  sent_at: string;
+  delivered_at?: string;
+  failed_at?: string;
+  failure_code?: string;
+  is_simulated: boolean;
+}
+
+export interface ActionAcknowledgement {
+  ack_id: string;
+  action_id: string;
+  actor_type: 'WORKER' | 'SUPERVISOR' | 'SYSTEM_OVERRIDE';
+  actor_ref: string;
+  acknowledged_at: string;
+  source: 'SMS_REPLY' | 'CONSOLE_BUTTON' | 'SIMULATED_API' | 'RADIO';
+  note?: string;
+}
+
+export interface EscalationDecision {
+  escalation_id: string;
+  worker_id?: string;
+  site_id: string;
+  action_id: string;
+  severity: IncidentSeverity;
+  reason_codes: string[];
+  policy_id: string;
+  policy_version: string;
+  created_at: string;
+  status: 'PENDING' | 'TRIGGERED' | 'ACKNOWLEDGED' | 'RESOLVED' | 'CANCELLED';
+  escalated_to?: string;
+  resolution_note?: string;
+}
+
 export interface Action {
   action_id: string;
   worker_id?: string;
   site_id: string;
   action_type: ActionType;
+  priority?: ActionPriority;
+  status?: ActionStatus;
+  risk_state_id?: string;
+  prediction_id?: string;
+  policy_id?: string;
   policy_version: string;
+  decision_mode?: 'AUTONOMOUS' | 'SUPERVISOR_REQUIRED' | 'EMERGENCY_AUTO';
   issued_at: string;
+  approved_at?: string;
+  dispatched_at?: string;
   delivered_at?: string;
+  ack_deadline?: string;
   acknowledged_at?: string;
+  completed_at?: string;
   outcome?: ActionOutcome;
   message: string;
   recommended_rest_minutes?: number;
   actor: string;
+  override_by?: string;
+  override_at?: string;
   override_reason?: string;
+  idempotency_key?: string;
+  delivery_id?: string;
+  delivery_status?: string;
+  reason_codes?: string[];
+  evidence_refs?: Record<string, unknown>;
+  is_simulated?: boolean;
 }
 
 export interface Incident {
@@ -226,6 +337,7 @@ export interface AuditEvent {
     | 'OBSERVATION_INGESTED'
     | 'RISK_EVALUATED'
     | 'ACTION_ISSUED'
+    | 'ACTION_DEDUPLICATED'
     | 'ACTION_ACKNOWLEDGED'
     | 'ACTION_OVERRIDDEN'
     | 'INCIDENT_OPENED'

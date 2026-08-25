@@ -23,13 +23,39 @@ export const RiskLevelSchema = z.enum(['GREEN', 'WATCH', 'ELEVATED', 'HIGH', 'CR
 export const ActionTypeSchema = z.enum([
   'MONITOR',
   'HYDRATION_REMINDER',
+  'SHADE_RECOMMENDATION',
+  'RECOVERY_BREAK',
+  'RELOCATE_TO_COOLING',
+  'MODIFY_WORK',
+  'STOP_WORK',
+  'SUPERVISOR_REVIEW',
+  'SUPERVISOR_ACK_REQUIRED',
+  'ESCALATE',
+  'EMERGENCY_PROTECTIVE_ACTION',
   'SHADED_BREAK',
   'MANDATORY_REST',
   'RELOCATE',
-  'STOP_WORK',
   'SUPERVISOR_ALERT',
   'EMERGENCY_ESCALATION',
 ]);
+
+export const ActionStatusSchema = z.enum([
+  'PROPOSED',
+  'POLICY_REVIEW',
+  'APPROVED',
+  'REJECTED',
+  'DISPATCHING',
+  'DELIVERED',
+  'DELIVERY_FAILED',
+  'ACK_PENDING',
+  'ACKNOWLEDGED',
+  'OVERRIDDEN',
+  'EXPIRED',
+  'ESCALATED',
+  'COMPLETED',
+]);
+
+export const ActionPrioritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'EMERGENCY']);
 
 export const ActionOutcomeSchema = z.enum([
   'PENDING',
@@ -37,6 +63,9 @@ export const ActionOutcomeSchema = z.enum([
   'ACKNOWLEDGED',
   'OVERRIDDEN',
   'EXPIRED',
+  'COMPLETED',
+  'FAILED',
+  'ESCALATED',
 ]);
 
 export const IncidentSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
@@ -177,20 +206,103 @@ export const RiskStateSchema = z.object({
   exposure_duration_mins: z.number().nonnegative(),
 });
 
+export const ActionDecisionSchema = z.object({
+  action_id: z.string().min(1),
+  worker_id: z.string().optional(),
+  site_id: z.string().min(1),
+  created_at: z.string(),
+  risk_state_id: z.string().optional(),
+  prediction_id: z.string().optional(),
+  action_type: ActionTypeSchema,
+  priority: ActionPrioritySchema,
+  reason_codes: z.array(z.string()),
+  evidence_refs: z.record(z.unknown()),
+  policy_id: z.string().min(1),
+  policy_version: z.string().min(1),
+  selected_by: z.enum(['AUTONOMOUS_POLICY_PLANNER', 'SUPERVISOR_DIRECT', 'EMERGENCY_GUARDRAIL']),
+  decision_mode: z.enum(['AUTONOMOUS', 'SUPERVISOR_REQUIRED', 'EMERGENCY_AUTO']),
+  confidence: z.number().min(0).max(1),
+  requires_acknowledgement: z.boolean(),
+  ack_deadline: z.string().optional(),
+  allowed: z.boolean(),
+  rejected_reason: z.string().optional(),
+  idempotency_key: z.string().min(1),
+  message: z.string(),
+  recommended_rest_minutes: z.number().int().nonnegative().optional(),
+});
+
+export const ActionDeliverySchema = z.object({
+  delivery_id: z.string().min(1),
+  action_id: z.string().min(1),
+  provider: z.enum(['SIMULATED_SMS', 'TWILIO_SMS', 'CONSOLE_ALERT']),
+  channel: CommunicationChannelSchema,
+  recipient_ref: z.string().min(1),
+  status: z.enum(['PENDING', 'DISPATCHED', 'DELIVERED', 'FAILED']),
+  attempt_count: z.number().int().nonnegative(),
+  sent_at: z.string(),
+  delivered_at: z.string().optional(),
+  failed_at: z.string().optional(),
+  failure_code: z.string().optional(),
+  is_simulated: z.boolean(),
+});
+
+export const ActionAcknowledgementSchema = z.object({
+  ack_id: z.string().min(1),
+  action_id: z.string().min(1),
+  actor_type: z.enum(['WORKER', 'SUPERVISOR', 'SYSTEM_OVERRIDE']),
+  actor_ref: z.string().min(1),
+  acknowledged_at: z.string(),
+  source: z.enum(['SMS_REPLY', 'CONSOLE_BUTTON', 'SIMULATED_API', 'RADIO']),
+  note: z.string().optional(),
+});
+
+export const EscalationDecisionSchema = z.object({
+  escalation_id: z.string().min(1),
+  worker_id: z.string().optional(),
+  site_id: z.string().min(1),
+  action_id: z.string().min(1),
+  severity: IncidentSeveritySchema,
+  reason_codes: z.array(z.string()),
+  policy_id: z.string().min(1),
+  policy_version: z.string().min(1),
+  created_at: z.string(),
+  status: z.enum(['PENDING', 'TRIGGERED', 'ACKNOWLEDGED', 'RESOLVED', 'CANCELLED']),
+  escalated_to: z.string().optional(),
+  resolution_note: z.string().optional(),
+});
+
 export const ActionSchema = z.object({
   action_id: z.string().min(1),
   worker_id: z.string().optional(),
   site_id: z.string().min(1),
   action_type: ActionTypeSchema,
+  priority: ActionPrioritySchema.optional(),
+  status: ActionStatusSchema.optional(),
+  risk_state_id: z.string().optional(),
+  prediction_id: z.string().optional(),
+  policy_id: z.string().optional(),
   policy_version: z.string(),
+  decision_mode: z.enum(['AUTONOMOUS', 'SUPERVISOR_REQUIRED', 'EMERGENCY_AUTO']).optional(),
   issued_at: z.string(),
+  approved_at: z.string().optional(),
+  dispatched_at: z.string().optional(),
   delivered_at: z.string().optional(),
+  ack_deadline: z.string().optional(),
   acknowledged_at: z.string().optional(),
+  completed_at: z.string().optional(),
   outcome: ActionOutcomeSchema.optional(),
   message: z.string(),
   recommended_rest_minutes: z.number().int().nonnegative().optional(),
   actor: z.string(),
+  override_by: z.string().optional(),
+  override_at: z.string().optional(),
   override_reason: z.string().optional(),
+  idempotency_key: z.string().optional(),
+  delivery_id: z.string().optional(),
+  delivery_status: z.string().optional(),
+  reason_codes: z.array(z.string()).optional(),
+  evidence_refs: z.record(z.unknown()).optional(),
+  is_simulated: z.boolean().optional(),
 });
 
 export const IncidentSchema = z.object({
@@ -235,6 +347,7 @@ export const AuditEventSchema = z.object({
     'OBSERVATION_INGESTED',
     'RISK_EVALUATED',
     'ACTION_ISSUED',
+    'ACTION_DEDUPLICATED',
     'ACTION_ACKNOWLEDGED',
     'ACTION_OVERRIDDEN',
     'INCIDENT_OPENED',

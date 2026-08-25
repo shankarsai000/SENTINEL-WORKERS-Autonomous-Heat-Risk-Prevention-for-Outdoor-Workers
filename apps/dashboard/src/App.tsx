@@ -35,12 +35,16 @@ export const App: React.FC = () => {
       .catch((e) => console.error('Failed to load sites:', e));
   }, []);
 
-  const handleAcknowledgeAction = async (actionId: string) => {
+  const handleAcknowledgeAction = async (actionId: string, actorType: 'WORKER' | 'SUPERVISOR' = 'SUPERVISOR') => {
     try {
       await fetch(`/api/actions/${actionId}/ack`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ actor: 'Site Safety Supervisor' }),
+        body: JSON.stringify({
+          actor: actorType === 'WORKER' ? 'Worker Self-Ack (Simulated SMS)' : 'Site Safety Supervisor',
+          actor_type: actorType,
+          source: actorType === 'WORKER' ? 'SMS_REPLY' : 'CONSOLE_BUTTON',
+        }),
       });
       refreshData();
     } catch (e) {
@@ -48,8 +52,8 @@ export const App: React.FC = () => {
     }
   };
 
-  const handleOverride = async (workerId: string, reason: string) => {
-    const action = actions.find((a) => a.worker_id === workerId);
+  const handleOverride = async (workerIdOrActionId: string, reason: string) => {
+    const action = actions.find((a) => a.worker_id === workerIdOrActionId || a.action_id === workerIdOrActionId);
     if (action) {
       try {
         await fetch(`/api/actions/${action.action_id}/override`, {
@@ -96,6 +100,7 @@ export const App: React.FC = () => {
             actions={actions}
             incidents={incidents}
             onAcknowledgeAction={handleAcknowledgeAction}
+            onOverrideAction={handleOverride}
           />
         </div>
 
