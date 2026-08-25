@@ -41,6 +41,16 @@ export interface ThermalObservation {
   activity_id?: string;
 }
 
+export interface RiskExplanationReason {
+  code: string;
+  message: string;
+}
+
+export interface RiskExplanation {
+  summary: string;
+  reasons: RiskExplanationReason[];
+}
+
 export interface RiskState {
   worker_id: string;
   site_id: string;
@@ -48,10 +58,41 @@ export interface RiskState {
   score: number;
   level: 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
   confidence: number;
+  policy_id?: string;
+  policy_version?: string;
   reason_codes: string[];
+  explanation?: RiskExplanation;
+  environment_score?: number;
+  exposure_score?: number;
+  task_score?: number;
+  zone_score?: number;
+  worker_modifier_score?: number;
+  recovery_score?: number;
+  data_freshness?: 'FRESH' | 'AGING' | 'STALE';
+  missing_features?: string[];
+  guardrail_flags?: string[];
+  action_eligibility?: string[];
+  escalation_required?: boolean;
+  source_observation_ids?: string[];
   forecast_breach_time?: string;
   exposure_duration_mins: number;
   worker_metadata?: Worker;
+}
+
+export interface DecisionEvent {
+  event_id: string;
+  timestamp?: string;
+  worker_id?: string;
+  actor: string;
+  input_refs: Record<string, string | undefined>;
+  risk_score?: number;
+  risk_level?: string;
+  confidence?: number;
+  reason_codes?: string[];
+  policy_version?: string;
+  guardrail_result?: string;
+  decision: string;
+  explanation: string;
 }
 
 export interface Action {

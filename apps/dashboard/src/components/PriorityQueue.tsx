@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, UserCheck, ShieldAlert, ArrowUpRight } from 'lucide-react';
+import { ShieldAlert, ArrowUpRight, CheckCircle, Clock } from 'lucide-react';
 import { RiskState } from '../types.js';
 
 interface PriorityQueueProps {
@@ -23,6 +23,12 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
     }
   };
 
+  const getFreshnessBadge = (freshness?: string) => {
+    if (freshness === 'STALE') return <span className="badge badge-critical" style={{ fontSize: '0.6rem' }}>STALE</span>;
+    if (freshness === 'AGING') return <span className="badge badge-elevated" style={{ fontSize: '0.6rem' }}>AGING</span>;
+    return <span className="badge badge-green" style={{ fontSize: '0.6rem' }}>FRESH</span>;
+  };
+
   return (
     <div className="card">
       <div className="card-header">
@@ -31,7 +37,7 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
           Supervisor Priority Attention Queue
         </h2>
         <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'JetBrains Mono' }}>
-          TOP 10 ACTIONABLE
+          TOP 10 ACTIONABLE • CONTEXTUAL RISK ENGINE
         </span>
       </div>
 
@@ -45,11 +51,13 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
             <thead>
               <tr>
                 <th>Worker ID</th>
-                <th>Site Location</th>
-                <th>Role</th>
+                <th>Site</th>
                 <th>Intensity</th>
                 <th>Exposure</th>
                 <th>Score</th>
+                <th>Confidence</th>
+                <th>Primary Reasons</th>
+                <th>Data</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -63,7 +71,6 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
                   <td style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
                     {worker.site_id}
                   </td>
-                  <td>{worker.worker_metadata?.role || 'Laborer'}</td>
                   <td>
                     <span style={{
                       color: worker.worker_metadata?.task_intensity === 'HEAVY' ? '#f97316' : '#94a3b8',
@@ -74,10 +81,33 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
                     </span>
                   </td>
                   <td style={{ fontFamily: 'JetBrains Mono' }}>
+                    <Clock size={11} style={{ display: 'inline', marginRight: 3 }} />
                     {Math.floor(worker.exposure_duration_mins / 60)}h {worker.exposure_duration_mins % 60}m
                   </td>
-                  <td style={{ fontFamily: 'JetBrains Mono', fontWeight: 700 }}>
+                  <td style={{ fontFamily: 'JetBrains Mono', fontWeight: 700, color: worker.score >= 0.7 ? '#f97316' : '#f8fafc' }}>
                     {worker.score.toFixed(2)}
+                  </td>
+                  <td style={{ fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: '#38bdf8' }}>
+                    {Math.round(worker.confidence * 100)}%
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                      {worker.reason_codes.slice(0, 2).map((code) => (
+                        <span key={code} style={{
+                          fontSize: '0.65rem',
+                          fontFamily: 'JetBrains Mono',
+                          background: 'rgba(255,255,255,0.06)',
+                          padding: '2px 4px',
+                          borderRadius: 3,
+                          color: '#cbd5e1'
+                        }}>
+                          {code.replace(/_/g, ' ')}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td>
+                    {getFreshnessBadge(worker.data_freshness)}
                   </td>
                   <td>
                     <span className={`badge ${getBadgeClass(worker.level)}`}>

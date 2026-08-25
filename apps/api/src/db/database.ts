@@ -10,6 +10,7 @@ import {
   Action,
   Incident,
   AuditEvent,
+  DecisionEvent,
 } from '@sentinel/schemas';
 import { PHOENIX_CONSTRUCTION_SITES, generateSyntheticWorkers } from '@sentinel/simulation';
 
@@ -84,7 +85,22 @@ export class SentinelDatabase {
           score REAL NOT NULL,
           level TEXT NOT NULL,
           confidence REAL NOT NULL,
+          policy_id TEXT,
+          policy_version TEXT,
           reason_codes TEXT NOT NULL,
+          explanation TEXT,
+          environment_score REAL,
+          exposure_score REAL,
+          task_score REAL,
+          zone_score REAL,
+          worker_modifier_score REAL,
+          recovery_score REAL,
+          data_freshness TEXT,
+          missing_features TEXT,
+          guardrail_flags TEXT,
+          action_eligibility TEXT,
+          escalation_required INTEGER,
+          source_observation_ids TEXT,
           forecast_breach_time TEXT,
           exposure_duration_mins INTEGER NOT NULL,
           PRIMARY KEY (worker_id, timestamp)
@@ -119,11 +135,17 @@ export class SentinelDatabase {
         );
         CREATE TABLE IF NOT EXISTS decision_events (
           event_id TEXT PRIMARY KEY,
+          worker_id TEXT,
           actor TEXT NOT NULL,
           input_refs TEXT NOT NULL,
+          risk_score REAL,
+          risk_level TEXT,
+          confidence REAL,
+          reason_codes TEXT,
+          policy_version TEXT,
+          guardrail_result TEXT,
           decision TEXT NOT NULL,
           explanation TEXT NOT NULL,
-          policy_version TEXT NOT NULL,
           timestamp TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS audit_events (
@@ -138,12 +160,53 @@ export class SentinelDatabase {
           id TEXT PRIMARY KEY,
           provider TEXT NOT NULL,
           endpoint TEXT NOT NULL,
-          activity_id TEXT,
-          credits_estimate REAL NOT NULL,
+          activity_id TEXT NOT NULL,
+          submitted_at TEXT NOT NULL,
+          completed_at TEXT,
           status TEXT NOT NULL,
-          timestamp TEXT NOT NULL
+          cache_hit INTEGER NOT NULL,
+          estimated_credit_cost REAL,
+          error_code TEXT
         );
       `);
+    }
+
+    // Safe column migrations for existing database files
+    const decisionCols = [
+      'worker_id TEXT',
+      'risk_score REAL',
+      'risk_level TEXT',
+      'confidence REAL',
+      'reason_codes TEXT',
+      'guardrail_result TEXT',
+    ];
+    for (const col of decisionCols) {
+      try {
+        this.db.exec(`ALTER TABLE decision_events ADD COLUMN ${col};`);
+      } catch (_) {}
+    }
+
+    const riskCols = [
+      'policy_id TEXT',
+      'policy_version TEXT',
+      'explanation TEXT',
+      'environment_score REAL',
+      'exposure_score REAL',
+      'task_score REAL',
+      'zone_score REAL',
+      'worker_modifier_score REAL',
+      'recovery_score REAL',
+      'data_freshness TEXT',
+      'missing_features TEXT',
+      'guardrail_flags TEXT',
+      'action_eligibility TEXT',
+      'escalation_required INTEGER',
+      'source_observation_ids TEXT',
+    ];
+    for (const col of riskCols) {
+      try {
+        this.db.exec(`ALTER TABLE risk_states ADD COLUMN ${col};`);
+      } catch (_) {}
     }
   }
 
@@ -254,8 +317,13 @@ export class SentinelDatabase {
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO risk_states (
         worker_id, site_id, timestamp, score, level, confidence,
-        reason_codes, forecast_breach_time, exposure_duration_mins
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        policy_id, policy_version, reason_codes, explanation,
+        environment_score, exposure_score, task_score, zone_score,
+        worker_modifier_score, recovery_score, data_freshness,
+        missing_features, guardrail_flags, action_eligibility,
+        escalation_required, source_observation_ids, forecast_breach_time,
+        exposure_duration_mins
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertTx = this.db.transaction((items: RiskState[]) => {
@@ -267,7 +335,22 @@ export class SentinelDatabase {
           s.score,
           s.level,
           s.confidence,
+          s.policy_id ?? null,
+          s.policy_version ?? null,
           JSON.stringify(s.reason_codes),
+          s.explanation ? JSON.stringify(s.explanation) : null,
+          s.environment_score ?? null,
+          s.exposure_score ?? null,
+          s.task_score ?? null,
+          s.zone_score ?? null,
+          s.worker_modifier_score ?? null,
+          s.recovery_score ?? null,
+          s.data_freshness ?? null,
+          s.missing_features ? JSON.stringify(s.missing_features) : null,
+          s.guardrail_flags ? JSON.stringify(s.guardrail_flags) : null,
+          s.action_eligibility ? JSON.stringify(s.action_eligibility) : null,
+          s.escalation_required ? 1 : 0,
+          s.source_observation_ids ? JSON.stringify(s.source_observation_ids) : null,
           s.forecast_breach_time ?? null,
           s.exposure_duration_mins
         );
@@ -289,9 +372,80 @@ export class SentinelDatabase {
     `);
 
     const rows = stmt.all() as any[];
+    return rows.map((r) => this.mapRiskStateRow(r));
+  }
+
+  public getWorkerRiskHistory(workerId: string, limit: number = 20): RiskState[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM risk_states
+      WHERE worker_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(workerId, limit) as any[];
+    return rows.map((r) => this.mapRiskStateRow(r));
+  }
+
+  private mapRiskStateRow(r: any): RiskState {
+    return {
+      ...r,
+      reason_codes: r.reason_codes ? JSON.parse(r.reason_codes) : [],
+      explanation: r.explanation ? JSON.parse(r.explanation) : undefined,
+      missing_features: r.missing_features ? JSON.parse(r.missing_features) : undefined,
+      guardrail_flags: r.guardrail_flags ? JSON.parse(r.guardrail_flags) : undefined,
+      action_eligibility: r.action_eligibility ? JSON.parse(r.action_eligibility) : undefined,
+      source_observation_ids: r.source_observation_ids ? JSON.parse(r.source_observation_ids) : undefined,
+      escalation_required: Boolean(r.escalation_required),
+    };
+  }
+
+  public saveDecisionEvent(ev: DecisionEvent): void {
+    this.saveDecisionEvents([ev]);
+  }
+
+  public saveDecisionEvents(events: DecisionEvent[]): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO decision_events (
+        event_id, worker_id, actor, input_refs, risk_score, risk_level,
+        confidence, reason_codes, policy_version, guardrail_result,
+        decision, explanation, timestamp
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertTx = this.db.transaction((items: DecisionEvent[]) => {
+      for (const ev of items) {
+        stmt.run(
+          ev.event_id,
+          ev.worker_id ?? null,
+          ev.actor,
+          JSON.stringify(ev.input_refs),
+          ev.risk_score ?? null,
+          ev.risk_level ?? null,
+          ev.confidence ?? null,
+          ev.reason_codes ? JSON.stringify(ev.reason_codes) : null,
+          ev.policy_version ?? null,
+          ev.guardrail_result ?? null,
+          ev.decision,
+          ev.explanation,
+          ev.timestamp || new Date().toISOString()
+        );
+      }
+    });
+
+    insertTx(events);
+  }
+
+  public getDecisionEvents(limit: number = 50): DecisionEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM decision_events
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+    const rows = stmt.all(limit) as any[];
     return rows.map((r) => ({
       ...r,
-      reason_codes: JSON.parse(r.reason_codes),
+      input_refs: JSON.parse(r.input_refs),
+      reason_codes: r.reason_codes ? JSON.parse(r.reason_codes) : [],
     }));
   }
 

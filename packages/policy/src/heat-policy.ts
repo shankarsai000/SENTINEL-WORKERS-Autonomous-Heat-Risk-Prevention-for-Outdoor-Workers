@@ -17,7 +17,7 @@ export interface HeatPolicyTier {
   escalationTimeoutMinutes: number;
 }
 
-export interface SafetyPolicy {
+export interface LegacySafetyPolicy {
   policyId: string;
   version: string;
   name: string;
@@ -25,7 +25,7 @@ export interface SafetyPolicy {
   tiers: HeatPolicyTier[];
 }
 
-export const DEFAULT_PHOENIX_POLICY: SafetyPolicy = {
+export const DEFAULT_PHOENIX_POLICY: LegacySafetyPolicy = {
   policyId: 'OSHA_NIOSH_PHX_V1',
   version: '2.0.0',
   name: 'Phoenix Extreme Heat Standard Policy (OSHA/NIOSH Inspired)',

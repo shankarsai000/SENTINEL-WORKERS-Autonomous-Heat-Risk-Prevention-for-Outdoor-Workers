@@ -93,6 +93,63 @@ export const ThermalObservationSchema = z.object({
   activity_id: z.string().optional(),
 });
 
+export const DataFreshnessSchema = z.enum(['FRESH', 'AGING', 'STALE']);
+
+export const RiskExplanationReasonSchema = z.object({
+  code: z.string().min(1),
+  message: z.string().min(1),
+});
+
+export const RiskExplanationSchema = z.object({
+  summary: z.string().min(1),
+  reasons: z.array(RiskExplanationReasonSchema),
+});
+
+export const WorkerRiskContextSchema = z.object({
+  worker_id: z.string().min(1),
+  site_id: z.string().min(1),
+  role: WorkerRoleSchema,
+  task_intensity: TaskIntensitySchema,
+  shift_start: z.string(),
+  shift_end: z.string(),
+  exposure_duration_minutes: z.number().nonnegative(),
+  recent_recovery_minutes: z.number().nonnegative().nullable(),
+  risk_modifier: RiskModifierSchema,
+  channel: CommunicationChannelSchema,
+  active: z.boolean(),
+});
+
+export const SiteRiskContextSchema = z.object({
+  site_id: z.string().min(1),
+  zone_id: z.string().min(1),
+  worker_count: z.number().int().nonnegative(),
+  active_worker_count: z.number().int().nonnegative(),
+  cooling_resources: CoolingResourcesSchema,
+  emergency_policy_id: z.string().min(1),
+});
+
+export const DerivedEnvironmentFeaturesSchema = z.object({
+  current_temperature: z.number(),
+  current_apparent_temperature: z.number().optional(),
+  current_wet_bulb: z.number().optional(),
+  humidity: z.number().min(0).max(100).optional(),
+  solar_irradiance: z.number().nonnegative().optional(),
+  temperature_delta_10m: z.number().optional(),
+  temperature_delta_30m: z.number().optional(),
+  trend_direction: z.enum(['RISING', 'FALLING', 'STABLE', 'UNKNOWN']),
+  observation_age_seconds: z.number().nonnegative(),
+  data_quality: DataFreshnessSchema,
+});
+
+export const ZoneClusterContextSchema = z.object({
+  zone_id: z.string().min(1),
+  active_workers_in_zone: z.number().int().nonnegative(),
+  elevated_workers_in_zone: z.number().int().nonnegative(),
+  high_workers_in_zone: z.number().int().nonnegative(),
+  critical_workers_in_zone: z.number().int().nonnegative(),
+  cluster_density: z.number().min(0).max(1),
+});
+
 export const RiskStateSchema = z.object({
   worker_id: z.string().min(1),
   site_id: z.string().min(1),
@@ -100,7 +157,22 @@ export const RiskStateSchema = z.object({
   score: z.number().min(0).max(1),
   level: RiskLevelSchema,
   confidence: z.number().min(0).max(1),
+  policy_id: z.string().optional(),
+  policy_version: z.string().optional(),
   reason_codes: z.array(z.string()),
+  explanation: RiskExplanationSchema.optional(),
+  environment_score: z.number().min(0).max(1).optional(),
+  exposure_score: z.number().min(0).max(1).optional(),
+  task_score: z.number().min(0).max(1).optional(),
+  zone_score: z.number().min(0).max(1).optional(),
+  worker_modifier_score: z.number().min(0).max(1).optional(),
+  recovery_score: z.number().min(0).max(1).optional(),
+  data_freshness: DataFreshnessSchema.optional(),
+  missing_features: z.array(z.string()).optional(),
+  guardrail_flags: z.array(z.string()).optional(),
+  action_eligibility: z.array(z.string()).optional(),
+  escalation_required: z.boolean().optional(),
+  source_observation_ids: z.array(z.string()).optional(),
   forecast_breach_time: z.string().optional(),
   exposure_duration_mins: z.number().nonnegative(),
 });
@@ -137,12 +209,24 @@ export const IncidentSchema = z.object({
 
 export const DecisionEventSchema = z.object({
   event_id: z.string().min(1),
+  timestamp: z.string().optional(),
+  worker_id: z.string().optional(),
   actor: z.string(),
-  input_refs: z.record(z.string().optional()),
+  input_refs: z.object({
+    observation_id: z.string().optional(),
+    worker_id: z.string().optional(),
+    risk_state_id: z.string().optional(),
+    policy_id: z.string().optional(),
+    site_id: z.string().optional(),
+  }),
+  risk_score: z.number().min(0).max(1).optional(),
+  risk_level: RiskLevelSchema.optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  reason_codes: z.array(z.string()).optional(),
+  policy_version: z.string().optional(),
+  guardrail_result: z.string().optional(),
   decision: z.string(),
   explanation: z.string(),
-  policy_version: z.string(),
-  timestamp: z.string(),
 });
 
 export const AuditEventSchema = z.object({

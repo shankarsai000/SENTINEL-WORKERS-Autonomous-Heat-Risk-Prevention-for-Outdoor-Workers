@@ -1,4 +1,4 @@
-import { SafetyPolicy, DEFAULT_PHOENIX_POLICY } from './heat-policy.js';
+import { LegacySafetyPolicy, DEFAULT_PHOENIX_POLICY } from './heat-policy.js';
 import { ThermalObservation, RiskState, Action, Worker } from '@sentinel/schemas';
 
 export interface GuardrailEvaluation {
@@ -11,9 +11,9 @@ export interface GuardrailEvaluation {
 }
 
 export class PolicyGuardrails {
-  private policy: SafetyPolicy;
+  private policy: LegacySafetyPolicy;
 
-  constructor(policy: SafetyPolicy = DEFAULT_PHOENIX_POLICY) {
+  constructor(policy: LegacySafetyPolicy = DEFAULT_PHOENIX_POLICY) {
     this.policy = policy;
   }
 

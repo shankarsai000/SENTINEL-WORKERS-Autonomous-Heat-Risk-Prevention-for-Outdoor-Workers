@@ -84,14 +84,86 @@ export interface ThermalObservation {
   activity_id?: string;
 }
 
+export type DataFreshness = 'FRESH' | 'AGING' | 'STALE';
+
+export interface RiskExplanationReason {
+  code: string;
+  message: string;
+}
+
+export interface RiskExplanation {
+  summary: string;
+  reasons: RiskExplanationReason[];
+}
+
+export interface WorkerRiskContext {
+  worker_id: string;
+  site_id: string;
+  role: WorkerRole;
+  task_intensity: TaskIntensity;
+  shift_start: string; // ISO 8601 string (UTC)
+  shift_end: string;   // ISO 8601 string (UTC)
+  exposure_duration_minutes: number;
+  recent_recovery_minutes: number | null;
+  risk_modifier: RiskModifier;
+  channel: CommunicationChannel;
+  active: boolean;
+}
+
+export interface SiteRiskContext {
+  site_id: string;
+  zone_id: string;
+  worker_count: number;
+  active_worker_count: number;
+  cooling_resources: CoolingResources;
+  emergency_policy_id: string;
+}
+
+export interface DerivedEnvironmentFeatures {
+  current_temperature: number;
+  current_apparent_temperature?: number;
+  current_wet_bulb?: number;
+  humidity?: number;
+  solar_irradiance?: number;
+  temperature_delta_10m?: number;
+  temperature_delta_30m?: number;
+  trend_direction: 'RISING' | 'FALLING' | 'STABLE' | 'UNKNOWN';
+  observation_age_seconds: number;
+  data_quality: DataFreshness;
+}
+
+export interface ZoneClusterContext {
+  zone_id: string;
+  active_workers_in_zone: number;
+  elevated_workers_in_zone: number;
+  high_workers_in_zone: number;
+  critical_workers_in_zone: number;
+  cluster_density: number; // 0.0 - 1.0
+}
+
 export interface RiskState {
   worker_id: string;
   site_id: string;
-  timestamp: string;
+  timestamp: string; // ISO 8601 string
   score: number; // 0.0 - 1.0
   level: RiskLevel;
-  confidence: number;
+  confidence: number; // 0.0 - 1.0
+  policy_id?: string;
+  policy_version?: string;
   reason_codes: string[];
+  explanation?: RiskExplanation;
+  environment_score?: number;
+  exposure_score?: number;
+  task_score?: number;
+  zone_score?: number;
+  worker_modifier_score?: number;
+  recovery_score?: number;
+  data_freshness?: DataFreshness;
+  missing_features?: string[];
+  guardrail_flags?: string[];
+  action_eligibility?: string[];
+  escalation_required?: boolean;
+  source_observation_ids?: string[];
   forecast_breach_time?: string;
   exposure_duration_mins: number;
 }
@@ -128,6 +200,8 @@ export interface Incident {
 
 export interface DecisionEvent {
   event_id: string;
+  timestamp?: string;
+  worker_id?: string;
   actor: string;
   input_refs: {
     observation_id?: string;
@@ -136,10 +210,14 @@ export interface DecisionEvent {
     policy_id?: string;
     site_id?: string;
   };
+  risk_score?: number;
+  risk_level?: RiskLevel;
+  confidence?: number;
+  reason_codes?: string[];
+  policy_version?: string;
+  guardrail_result?: string;
   decision: string;
   explanation: string;
-  policy_version: string;
-  timestamp: string;
 }
 
 export interface AuditEvent {

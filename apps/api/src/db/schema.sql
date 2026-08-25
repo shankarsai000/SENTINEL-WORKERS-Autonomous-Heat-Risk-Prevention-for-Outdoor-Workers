@@ -48,7 +48,22 @@ CREATE TABLE IF NOT EXISTS risk_states (
   score REAL NOT NULL,
   level TEXT NOT NULL,
   confidence REAL NOT NULL,
+  policy_id TEXT,
+  policy_version TEXT,
   reason_codes TEXT NOT NULL,
+  explanation TEXT,
+  environment_score REAL,
+  exposure_score REAL,
+  task_score REAL,
+  zone_score REAL,
+  worker_modifier_score REAL,
+  recovery_score REAL,
+  data_freshness TEXT,
+  missing_features TEXT,
+  guardrail_flags TEXT,
+  action_eligibility TEXT,
+  escalation_required INTEGER,
+  source_observation_ids TEXT,
   forecast_breach_time TEXT,
   exposure_duration_mins INTEGER NOT NULL,
   PRIMARY KEY (worker_id, timestamp),
@@ -90,11 +105,17 @@ CREATE TABLE IF NOT EXISTS incidents (
 
 CREATE TABLE IF NOT EXISTS decision_events (
   event_id TEXT PRIMARY KEY,
+  worker_id TEXT,
   actor TEXT NOT NULL,
   input_refs TEXT NOT NULL,
+  risk_score REAL,
+  risk_level TEXT,
+  confidence REAL,
+  reason_codes TEXT,
+  policy_version TEXT,
+  guardrail_result TEXT,
   decision TEXT NOT NULL,
   explanation TEXT NOT NULL,
-  policy_version TEXT NOT NULL,
   timestamp TEXT NOT NULL
 );
 
@@ -111,10 +132,13 @@ CREATE TABLE IF NOT EXISTS api_usage (
   id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
   endpoint TEXT NOT NULL,
-  activity_id TEXT,
-  credits_estimate REAL NOT NULL,
+  activity_id TEXT NOT NULL,
+  submitted_at TEXT NOT NULL,
+  completed_at TEXT,
   status TEXT NOT NULL,
-  timestamp TEXT NOT NULL
+  cache_hit INTEGER NOT NULL,
+  estimated_credit_cost REAL,
+  error_code TEXT
 );
 
 CREATE TABLE IF NOT EXISTS model_versions (

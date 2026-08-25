@@ -167,8 +167,12 @@ RUN_FORTYGUARD_LIVE_TESTS=true FORTYGUARD_API_KEY=your_key npm test tests/integr
 | `GET` | `/api/system/capabilities` | System capabilities and FortyGuard capability discovery |
 | `GET` | `/api/sites` | List of 5 configurable Phoenix construction sites |
 | `GET` | `/api/workers?site_id=...` | List 500 synthetic workers (with site filtering) |
-| `GET` | `/api/risk/summary` | Realtime distribution counts (GREEN, WATCH, ELEVATED, HIGH, CRITICAL) |
-| `GET` | `/api/risk/workers` | Ranked worker list with latest risk states and metadata |
+| `GET` | `/api/risk/summary` | Realtime distribution counts, average confidence, and clusters |
+| `GET` | `/api/risk/workers` | Ranked worker list with 6-factor component scores and explanations |
+| `GET` | `/api/risk/workers/:workerId` | Deep worker detail with audit trail and historical risk states |
+| `GET` | `/api/risk/policies` | Active versioned safety policy configurations |
+| `GET` | `/api/risk/events` | Decision events and policy evaluation audit logs |
+| `GET` | `/api/risk/config` | Active scoring weights, risk bands, and guardrail limits |
 | `GET` | `/api/events` | Cryptographic SHA-256 audit log trail |
 | `GET` | `/api/incidents` | Clustered site heat stress incidents |
 | `GET` | `/api/fortyguard/status` | FortyGuard adapter status, masked key, and cache metrics |

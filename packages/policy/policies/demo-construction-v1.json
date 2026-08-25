@@ -1,0 +1,50 @@
+{
+  "policy_id": "demo-construction-v1",
+  "name": "Demo Construction Safety Policy",
+  "version": "1.0.0",
+  "effective_from": "2026-06-01T00:00:00.000Z",
+  "description": "Standard occupational heat-safety policy with configurable thresholds, risk bands, and deterministic emergency guardrails.",
+  "risk_bands": {
+    "green": { "min": 0.0, "max": 0.30 },
+    "watch": { "min": 0.30, "max": 0.50 },
+    "elevated": { "min": 0.50, "max": 0.70 },
+    "high": { "min": 0.70, "max": 0.85 },
+    "critical": { "min": 0.85, "max": 1.0 }
+  },
+  "scoring_weights": {
+    "environment": 0.40,
+    "exposure": 0.25,
+    "task_intensity": 0.15,
+    "zone_cluster": 0.10,
+    "worker_modifier": 0.10,
+    "recovery_mitigation": 0.15
+  },
+  "task_intensity_weights": {
+    "LIGHT": 0.2,
+    "MODERATE": 0.5,
+    "HEAVY": 0.9
+  },
+  "worker_modifier_weights": {
+    "baseline": 0.1,
+    "elevated": 0.8,
+    "acclimatizing": 0.5
+  },
+  "freshness_rules": {
+    "fresh_max_seconds": 300,
+    "aging_max_seconds": 900
+  },
+  "guardrails": {
+    "extreme_temperature_c": 45.0,
+    "extreme_apparent_temperature_c": 48.0,
+    "extreme_wet_bulb_c": 31.0,
+    "stale_confidence_penalty": 0.25,
+    "unacknowledged_critical_escalation_mins": 15
+  },
+  "action_eligibility": {
+    "GREEN": ["MONITOR"],
+    "WATCH": ["MONITOR", "HYDRATION_REMINDER"],
+    "ELEVATED": ["HYDRATION_REMINDER", "SHADED_BREAK"],
+    "HIGH": ["SHADED_BREAK", "MANDATORY_REST", "RELOCATE"],
+    "CRITICAL": ["STOP_WORK", "SUPERVISOR_ALERT", "EMERGENCY_ESCALATION"]
+  }
+}

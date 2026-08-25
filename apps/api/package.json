@@ -13,6 +13,7 @@
   "dependencies": {
     "@sentinel/fortyguard-provider": "*",
     "@sentinel/policy": "*",
+    "@sentinel/risk-engine": "*",
     "@sentinel/schemas": "*",
     "@sentinel/simulation": "*",
     "better-sqlite3": "^11.8.1",
