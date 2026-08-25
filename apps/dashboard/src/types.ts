@@ -242,18 +242,99 @@ export interface Action {
   is_simulated?: boolean;
 }
 
+export interface IncidentActionSummary {
+  proposed: number;
+  approved: number;
+  delivered: number;
+  acknowledged: number;
+  pending: number;
+  failed: number;
+  escalated: number;
+  completed: number;
+}
+
+export type IncidentStatus =
+  | 'DETECTED'
+  | 'TRIAGED'
+  | 'ACTIVE'
+  | 'MITIGATING'
+  | 'RESOLVED'
+  | 'CLOSED'
+  | 'OPEN'
+  | 'INVESTIGATING';
+
 export interface Incident {
   incident_id: string;
   zone_id: string;
   site_id: string;
-  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  severity: 'LOW' | 'MEDIUM' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
+  status: IncidentStatus;
   opened_at: string;
-  workers_affected: string[];
-  owner: string;
+  created_at?: string;
+  updated_at?: string;
   closed_at?: string;
-  resolution?: string;
+  affected_worker_count: number;
+  worker_ids: string[];
+  workers_affected?: string[];
   summary: string;
-  status: 'OPEN' | 'INVESTIGATING' | 'MITIGATED' | 'CLOSED';
+  common_reason_codes: string[];
+  common_factors: string[];
+  thermal_context?: Record<string, unknown>;
+  prediction_context?: Record<string, unknown>;
+  action_summary?: IncidentActionSummary;
+  owner: string;
+  policy_id?: string;
+  policy_version?: string;
+  confidence?: number;
+  uncertainty?: string[];
+  resolution?: string;
+  resolution_note?: string;
+}
+
+export type SupervisorRole = 'SUPERVISOR' | 'OPERATOR' | 'VIEWER';
+
+export interface PriorityWorkerItem {
+  worker_id: string;
+  site_id: string;
+  zone_id: string;
+  role: string;
+  task_intensity: 'LIGHT' | 'MODERATE' | 'HEAVY';
+  current_risk_level: 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
+  current_risk_score: number;
+  predicted_risk_level: 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL' | 'STABLE';
+  predicted_risk_score: number;
+  threshold_eta_mins: number | null;
+  confidence: number;
+  data_freshness: 'FRESH' | 'AGING' | 'STALE';
+  exposure_duration_mins: number;
+  primary_reason: string;
+  priority_score: number;
+  priority_rank: number;
+  priority_reason: string;
+  action_status: ActionStatus | 'NO_ACTION';
+  ack_status: 'ACK_PENDING' | 'ACKNOWLEDGED' | 'ESCALATED' | 'NONE';
+  active_incident_id?: string;
+}
+
+export interface OperationsSummary {
+  active_workers: number;
+  green_count: number;
+  watch_count: number;
+  elevated_count: number;
+  high_count: number;
+  critical_count: number;
+  predicted_deterioration_count: number;
+  pending_ack_count: number;
+  active_incidents: number;
+  escalated_incidents: number;
+  stale_data_count: number;
+  fortyguard_status: 'CONNECTED' | 'DISABLED' | 'DEGRADED';
+  risk_engine_status: 'HEALTHY' | 'DEGRADED';
+  prediction_status: 'HEALTHY' | 'DEGRADED';
+  action_engine_status: 'HEALTHY' | 'DEGRADED';
+  system_status: 'ACTIVE' | 'DEGRADED' | 'OFFLINE';
+  data_freshness: 'FRESH' | 'AGING' | 'STALE';
+  last_updated: string;
 }
 
 export interface AuditEvent {

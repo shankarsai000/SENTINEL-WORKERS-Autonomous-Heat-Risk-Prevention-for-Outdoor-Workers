@@ -19,6 +19,8 @@ import { createActionsRouter } from './routes/actions.js';
 import { createSimulationRouter } from './routes/simulation.js';
 import { createFortyGuardRouter } from './routes/fortyguard.js';
 import { createPredictionRouter } from './routes/prediction.js';
+import { createIncidentsRouter } from './routes/incidents.js';
+import { createOperationsRouter } from './routes/operations.js';
 
 dotenv.config();
 
@@ -79,6 +81,8 @@ export function createSentinelServer() {
   app.use('/api', createPredictionRouter(db));
   app.use('/api', createEventsRouter(db, audit));
   app.use('/api', createActionsRouter(orchestrator, db));
+  app.use('/api', createIncidentsRouter(orchestrator, db));
+  app.use('/api', createOperationsRouter(orchestrator, db));
   app.use('/api', createSimulationRouter(orchestrator));
   app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator));
 

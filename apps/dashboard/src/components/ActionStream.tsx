@@ -108,7 +108,7 @@ export const ActionStream: React.FC<ActionStreamProps> = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <span className="badge badge-critical">INCIDENT: {inc.zone_id}</span>
                   <span style={{ fontSize: '0.7rem', color: '#94a3b8', fontFamily: 'JetBrains Mono' }}>
-                    {inc.workers_affected.length} WORKERS
+                    {inc.affected_worker_count || (inc.workers_affected || inc.worker_ids || []).length} WORKERS
                   </span>
                 </div>
                 <p style={{ fontSize: '0.75rem', marginTop: 6, color: '#f8fafc', lineHeight: 1.35 }}>

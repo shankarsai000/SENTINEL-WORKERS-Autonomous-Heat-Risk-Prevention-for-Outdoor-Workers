@@ -23,6 +23,7 @@ import {
   ActionDeduplicationService,
   EscalationEvaluator,
 } from '@sentinel/action-engine';
+import { IncidentEngine } from './incident-engine.js';
 import { SentinelDatabase } from '../db/database.js';
 import { AuditService } from './audit-service.js';
 import { SentinelWebSocketServer } from './websocket-server.js';
@@ -169,6 +170,16 @@ export class SentinelOrchestrator {
     this.audit.recordAuditEvent('SIMULATION_STATE_CHANGED', 'simulation_engine', {
       action: 'STOP',
       tick: this.engine.getState().current_tick,
+    });
+  }
+
+  public resetSimulation(): void {
+    logger.info({ event: 'SIMULATION_RESET' });
+    this.engine.reset();
+    this.broadcastSimulationStatus();
+    this.audit.recordAuditEvent('SIMULATION_STATE_CHANGED', 'simulation_engine', {
+      action: 'RESET',
+      tick: 0,
     });
   }
 
@@ -500,14 +511,55 @@ export class SentinelOrchestrator {
           workers_affected: escResult.action.worker_id ? [escResult.action.worker_id] : [],
           owner: escResult.escalation.escalated_to || 'Supervisor',
           summary: `Action '${escResult.action.action_type}' for worker ${escResult.action.worker_id} exceeded acknowledgement deadline. Escalated to supervisor.`,
-          status: 'OPEN',
+          status: 'ACTIVE',
         });
       }
     }
 
-    // 10. Cluster Incident Detection
-    if (criticalWorkersInZone.length >= 3) {
-      this.handleClusterIncident(obs.site_id, criticalWorkersInZone, obs.temperature_c);
+    // 10. Spatial Incident Clustering Engine (Phase P5)
+    const existingIncidents = this.db.getIncidents({ site_id: obs.site_id });
+    const currentRisksMap = new Map<string, RiskState>();
+    const predictionsMap = new Map<string, PredictiveRiskState>();
+
+    for (const w of workers) {
+      const r = this.db.getWorkerRiskHistory(w.worker_id, 1)[0];
+      if (r) currentRisksMap.set(w.worker_id, r);
+      const p = this.db.getWorkerPredictiveHistory(w.worker_id, 1)[0];
+      if (p) predictionsMap.set(w.worker_id, p);
+    }
+
+    const recentActions = this.db.getActions({ site_id: obs.site_id, limit: 100 });
+
+    const clusterResult = IncidentEngine.evaluateClustering({
+      site_id: obs.site_id,
+      workers,
+      currentRisks: currentRisksMap,
+      predictions: predictionsMap,
+      actions: recentActions,
+      existingIncidents,
+      timestamp: obs.timestamp,
+      policy: PolicyLoader.getPolicy(),
+      options: { min_workers: 2 },
+    });
+
+    for (const inc of clusterResult.created_incidents) {
+      this.db.saveIncident(inc);
+      this.wsServer?.broadcast('INCIDENT_EVENT', inc);
+    }
+    for (const inc of clusterResult.updated_incidents) {
+      this.db.saveIncident(inc);
+      this.wsServer?.broadcast('INCIDENT_EVENT', inc);
+    }
+    for (const inc of clusterResult.resolved_incidents) {
+      this.db.saveIncident(inc);
+      this.wsServer?.broadcast('INCIDENT_EVENT', inc);
+    }
+    for (const ev of clusterResult.audit_events) {
+      this.audit.recordAuditEvent(
+        ev.event_type === 'incident.resolved' ? 'INCIDENT_RESOLVED' : 'INCIDENT_OPENED',
+        ev.incident_id,
+        ev.details
+      );
     }
   }
 
@@ -534,39 +586,6 @@ export class SentinelOrchestrator {
 
     this.wsServer?.broadcast('ACTION_EVENT', updated);
     return updated;
-  }
-
-  private handleClusterIncident(siteId: string, criticalWorkerIds: string[], tempC: number): void {
-    let incident = this.activeClusterIncidents.get(siteId);
-
-    if (!incident) {
-      incident = {
-        incident_id: `inc_${Date.now()}_${siteId}`,
-        zone_id: `ZONE-${siteId}`,
-        site_id: siteId,
-        severity: tempC >= 45 ? 'CRITICAL' : 'HIGH',
-        opened_at: new Date().toISOString(),
-        workers_affected: criticalWorkerIds,
-        owner: 'Site Safety Supervisor',
-        summary: `Heat Stress Cluster: ${criticalWorkerIds.length} workers at ${siteId} exceeded safety threshold during ${tempC}°C thermal peak.`,
-        status: 'OPEN',
-      };
-
-      this.activeClusterIncidents.set(siteId, incident);
-      this.db.saveIncident(incident);
-
-      this.audit.recordAuditEvent('INCIDENT_OPENED', incident.incident_id, {
-        site_id: siteId,
-        severity: incident.severity,
-        workers_affected: criticalWorkerIds,
-      });
-
-      this.wsServer?.broadcast('INCIDENT_EVENT', incident);
-    } else {
-      incident.workers_affected = Array.from(new Set([...incident.workers_affected, ...criticalWorkerIds]));
-      this.db.saveIncident(incident);
-      this.wsServer?.broadcast('INCIDENT_EVENT', incident);
-    }
   }
 
   private broadcastSimulationStatus(): void {

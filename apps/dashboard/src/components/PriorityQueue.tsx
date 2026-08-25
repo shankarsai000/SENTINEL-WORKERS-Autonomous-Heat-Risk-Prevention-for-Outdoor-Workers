@@ -1,128 +1,180 @@
-import React from 'react';
-import { ShieldAlert, ArrowUpRight, Clock, AlertTriangle } from 'lucide-react';
-import { RiskState } from '../types.js';
+import React, { useState } from 'react';
+import { PriorityWorkerItem } from '../types';
 
 interface PriorityQueueProps {
-  riskStates: RiskState[];
-  onSelectWorker: (worker: RiskState) => void;
+  items: PriorityWorkerItem[];
+  selectedWorkerId: string | null;
+  onSelectWorker: (workerId: string) => void;
+  isLoading?: boolean;
 }
 
-export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSelectWorker }) => {
-  // Sort descending by score and pick top 10
-  const topQueue = [...riskStates]
-    .sort((a, b) => b.score - a.score)
-    .slice(0, 10);
+export const PriorityQueue: React.FC<PriorityQueueProps> = ({
+  items,
+  selectedWorkerId,
+  onSelectWorker,
+  isLoading = false,
+}) => {
+  const [search, setSearch] = useState('');
+  const [filterRisk, setFilterRisk] = useState<string>('ALL');
 
-  const getBadgeClass = (level: string) => {
+  const filteredItems = items.filter((item) => {
+    const matchesSearch =
+      item.worker_id.toLowerCase().includes(search.toLowerCase()) ||
+      item.role.toLowerCase().includes(search.toLowerCase()) ||
+      item.primary_reason.toLowerCase().includes(search.toLowerCase()) ||
+      item.priority_reason.toLowerCase().includes(search.toLowerCase());
+
+    if (!matchesSearch) return false;
+
+    if (filterRisk === 'ALL') return true;
+    if (filterRisk === 'WATCH+') return item.current_risk_level !== 'GREEN';
+    if (filterRisk === 'ELEVATED+')
+      return item.current_risk_level === 'ELEVATED' || item.current_risk_level === 'HIGH' || item.current_risk_level === 'CRITICAL';
+    if (filterRisk === 'HIGH+')
+      return item.current_risk_level === 'HIGH' || item.current_risk_level === 'CRITICAL';
+    if (filterRisk === 'CRITICAL') return item.current_risk_level === 'CRITICAL';
+    return item.current_risk_level === filterRisk;
+  });
+
+  const getRiskBadge = (level: string) => {
     switch (level) {
-      case 'CRITICAL': return 'badge-critical';
-      case 'HIGH': return 'badge-high';
-      case 'ELEVATED': return 'badge-elevated';
-      case 'WATCH': return 'badge-watch';
-      default: return 'badge-green';
+      case 'CRITICAL':
+        return <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-950/80 text-red-400 border border-red-800 animate-pulse">🔴 CRITICAL</span>;
+      case 'HIGH':
+        return <span className="px-2 py-0.5 rounded text-xs font-bold bg-orange-950/80 text-orange-400 border border-orange-800">🟠 HIGH</span>;
+      case 'ELEVATED':
+        return <span className="px-2 py-0.5 rounded text-xs font-bold bg-yellow-950/80 text-yellow-400 border border-yellow-800">🟡 ELEVATED</span>;
+      case 'WATCH':
+        return <span className="px-2 py-0.5 rounded text-xs font-medium bg-blue-950/80 text-blue-400 border border-blue-800">🔵 WATCH</span>;
+      default:
+        return <span className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/80 text-emerald-400 border border-emerald-800">🟢 GREEN</span>;
     }
   };
 
-  const getFreshnessBadge = (freshness?: string) => {
-    if (freshness === 'STALE') return <span className="badge badge-critical" style={{ fontSize: '0.6rem' }}>STALE</span>;
-    if (freshness === 'AGING') return <span className="badge badge-elevated" style={{ fontSize: '0.6rem' }}>AGING</span>;
-    return <span className="badge badge-green" style={{ fontSize: '0.6rem' }}>FRESH</span>;
+  const getAckBadge = (status: string) => {
+    if (status === 'ACK_PENDING') {
+      return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-900/60 text-amber-300 border border-amber-700">ACK PENDING</span>;
+    }
+    if (status === 'ACKNOWLEDGED') {
+      return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-emerald-900/60 text-emerald-300 border border-emerald-700">ACKED</span>;
+    }
+    if (status === 'ESCALATED') {
+      return <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-900/60 text-rose-300 border border-rose-700">ESCALATED</span>;
+    }
+    return <span className="text-[11px] text-slate-500">—</span>;
   };
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>
-          <ShieldAlert size={18} color="#f97316" />
-          Supervisor Priority Attention Queue
-        </h2>
-        <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'JetBrains Mono' }}>
-          TOP 10 ACTIONABLE • PREDICTIVE LEAD-TIME ACTIVE
-        </span>
+    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col h-full shadow-lg">
+      <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+        <div className="flex items-center space-x-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+          <h2 className="text-base font-semibold text-slate-100">Supervisor Priority Queue</h2>
+          <span className="text-xs px-2 py-0.5 bg-slate-800 text-slate-400 rounded-full font-mono">
+            {filteredItems.length} active
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <select
+            value={filterRisk}
+            onChange={(e) => setFilterRisk(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-sky-500 outline-none"
+          >
+            <option value="ALL">All Risk Levels</option>
+            <option value="WATCH+">Watch and Above</option>
+            <option value="ELEVATED+">Elevated and Above</option>
+            <option value="HIGH+">High & Critical</option>
+            <option value="CRITICAL">Critical Only</option>
+          </select>
+          <input
+            type="text"
+            placeholder="Search worker / role / reason..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-200 text-xs rounded-lg px-3 py-1 w-48 focus:ring-1 focus:ring-sky-500 outline-none placeholder:text-slate-500"
+          />
+        </div>
       </div>
 
-      <div className="card-body" style={{ padding: 0 }}>
-        {topQueue.length === 0 ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#64748b', fontSize: '0.85rem' }}>
-            No elevated risk profiles detected yet. Scenario running within safe thermal margins.
-          </div>
+      <div className="overflow-y-auto flex-1 mt-3 space-y-1.5 pr-1 max-h-[460px]">
+        {isLoading ? (
+          <div className="py-12 text-center text-slate-500 text-sm">Loading priority queue...</div>
+        ) : filteredItems.length === 0 ? (
+          <div className="py-12 text-center text-slate-500 text-sm">No workers matching filter.</div>
         ) : (
-          <table className="ops-table">
-            <thead>
-              <tr>
-                <th>Worker ID</th>
-                <th>Site</th>
-                <th>Intensity</th>
-                <th>Exposure</th>
-                <th>Current Score</th>
-                <th>Confidence</th>
-                <th>Primary Reasons</th>
-                <th>Data</th>
-                <th>Current Risk</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {topQueue.map((worker) => (
-                <tr key={worker.worker_id} onClick={() => onSelectWorker(worker)}>
-                  <td style={{ fontFamily: 'JetBrains Mono', fontWeight: 600, color: '#f8fafc' }}>
-                    {worker.worker_id}
-                  </td>
-                  <td style={{ color: '#94a3b8', fontSize: '0.75rem' }}>
-                    {worker.site_id}
-                  </td>
-                  <td>
-                    <span style={{
-                      color: worker.worker_metadata?.task_intensity === 'HEAVY' ? '#f97316' : '#94a3b8',
-                      fontFamily: 'JetBrains Mono',
-                      fontSize: '0.75rem'
-                    }}>
-                      {worker.worker_metadata?.task_intensity || 'MODERATE'}
-                    </span>
-                  </td>
-                  <td style={{ fontFamily: 'JetBrains Mono' }}>
-                    <Clock size={11} style={{ display: 'inline', marginRight: 3 }} />
-                    {Math.floor(worker.exposure_duration_mins / 60)}h {worker.exposure_duration_mins % 60}m
-                  </td>
-                  <td style={{ fontFamily: 'JetBrains Mono', fontWeight: 700, color: worker.score >= 0.7 ? '#f97316' : '#f8fafc' }}>
-                    {worker.score.toFixed(2)}
-                  </td>
-                  <td style={{ fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: '#38bdf8' }}>
-                    {Math.round(worker.confidence * 100)}%
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                      {worker.reason_codes.slice(0, 2).map((code) => (
-                        <span key={code} style={{
-                          fontSize: '0.65rem',
-                          fontFamily: 'JetBrains Mono',
-                          background: 'rgba(255,255,255,0.06)',
-                          padding: '2px 4px',
-                          borderRadius: 3,
-                          color: '#cbd5e1'
-                        }}>
-                          {code.replace(/_/g, ' ')}
-                        </span>
-                      ))}
+          filteredItems.map((item) => {
+            const isSelected = selectedWorkerId === item.worker_id;
+            return (
+              <div
+                key={item.worker_id}
+                onClick={() => onSelectWorker(item.worker_id)}
+                className={`p-3 rounded-lg border transition-all cursor-pointer flex items-center justify-between ${
+                  isSelected
+                    ? 'bg-slate-800 border-sky-500 shadow-md ring-1 ring-sky-500/30'
+                    : 'bg-slate-950/60 hover:bg-slate-800/80 border-slate-800/80'
+                }`}
+              >
+                {/* Left: Rank & Worker ID & Role */}
+                <div className="flex items-center space-x-3 min-w-[170px]">
+                  <span className="text-xs font-mono font-bold text-slate-400 w-5">
+                    #{item.priority_rank}
+                  </span>
+                  <div>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="font-mono font-bold text-sm text-slate-100">{item.worker_id}</span>
+                      <span className="text-[11px] text-slate-400">({item.role})</span>
                     </div>
-                  </td>
-                  <td>
-                    {getFreshnessBadge(worker.data_freshness)}
-                  </td>
-                  <td>
-                    <span className={`badge ${getBadgeClass(worker.level)}`}>
-                      {worker.level}
+                    <div className="text-[11px] text-slate-400 font-mono">{item.zone_id}</div>
+                  </div>
+                </div>
+
+                {/* Center-Left: Current Risk & Trajectory */}
+                <div className="flex flex-col items-start min-w-[130px]">
+                  <div className="flex items-center space-x-1.5">
+                    {getRiskBadge(item.current_risk_level)}
+                    <span className="text-xs font-mono text-slate-300">
+                      {Math.round(item.current_risk_score * 100)}%
                     </span>
-                  </td>
-                  <td style={{ textAlign: 'right' }}>
-                    <button className="btn" style={{ padding: '4px 8px', fontSize: '0.72rem' }}>
-                      Inspect <ArrowUpRight size={12} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                  {item.predicted_risk_level !== 'STABLE' && item.predicted_risk_level !== item.current_risk_level ? (
+                    <span className="text-[10px] text-amber-400 mt-0.5">
+                      ↗ Pred {item.predicted_risk_level} {item.threshold_eta_mins ? `(${item.threshold_eta_mins}m)` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-slate-500 mt-0.5">Trajectory: Stable</span>
+                  )}
+                </div>
+
+                {/* Center-Right: Priority Reason */}
+                <div className="flex-1 px-3 hidden md:block">
+                  <div className="text-xs font-medium text-slate-200 line-clamp-1">{item.priority_reason}</div>
+                  <div className="text-[10px] text-slate-400 truncate">
+                    {item.primary_reason} • Exp: {item.exposure_duration_mins}m
+                  </div>
+                </div>
+
+                {/* Right: Action / Ack Status & Action Button */}
+                <div className="flex items-center space-x-2.5">
+                  <div className="text-right">
+                    <div className="text-[11px] font-mono text-slate-300">
+                      {item.action_status !== 'NO_ACTION' ? item.action_status : 'MONITOR'}
+                    </div>
+                    <div>{getAckBadge(item.ack_status)}</div>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onSelectWorker(item.worker_id);
+                    }}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-sky-600 text-slate-200 hover:text-white rounded text-xs font-medium transition"
+                  >
+                    Inspect
+                  </button>
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

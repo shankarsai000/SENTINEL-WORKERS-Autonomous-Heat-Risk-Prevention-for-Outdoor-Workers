@@ -68,7 +68,7 @@ export const ActionOutcomeSchema = z.enum([
   'ESCALATED',
 ]);
 
-export const IncidentSeveritySchema = z.enum(['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
+export const IncidentSeveritySchema = z.enum(['LOW', 'MEDIUM', 'ELEVATED', 'HIGH', 'CRITICAL']);
 
 export const ObservationSourceSchema = z.enum(['simulation', 'fortyguard', 'fortyguard_cache', 'sensor_fallback']);
 
@@ -305,18 +305,100 @@ export const ActionSchema = z.object({
   is_simulated: z.boolean().optional(),
 });
 
+export const IncidentStatusSchema = z.enum([
+  'DETECTED',
+  'TRIAGED',
+  'ACTIVE',
+  'MITIGATING',
+  'RESOLVED',
+  'CLOSED',
+  'OPEN',
+  'INVESTIGATING',
+]);
+
+export const IncidentActionSummarySchema = z.object({
+  proposed: z.number().int().nonnegative().default(0),
+  approved: z.number().int().nonnegative().default(0),
+  delivered: z.number().int().nonnegative().default(0),
+  acknowledged: z.number().int().nonnegative().default(0),
+  pending: z.number().int().nonnegative().default(0),
+  failed: z.number().int().nonnegative().default(0),
+  escalated: z.number().int().nonnegative().default(0),
+  completed: z.number().int().nonnegative().default(0),
+});
+
 export const IncidentSchema = z.object({
   incident_id: z.string().min(1),
   zone_id: z.string().min(1),
   site_id: z.string().min(1),
   severity: IncidentSeveritySchema,
+  status: IncidentStatusSchema,
   opened_at: z.string(),
-  workers_affected: z.array(z.string()),
-  owner: z.string(),
+  created_at: z.string().optional(),
+  updated_at: z.string().optional(),
   closed_at: z.string().optional(),
-  resolution: z.string().optional(),
+  affected_worker_count: z.number().int().nonnegative().default(0),
+  worker_ids: z.array(z.string()).default([]),
+  workers_affected: z.array(z.string()).optional(),
   summary: z.string(),
-  status: z.enum(['OPEN', 'INVESTIGATING', 'MITIGATED', 'CLOSED']),
+  common_reason_codes: z.array(z.string()).default([]),
+  common_factors: z.array(z.string()).default([]),
+  thermal_context: z.record(z.unknown()).optional(),
+  prediction_context: z.record(z.unknown()).optional(),
+  action_summary: IncidentActionSummarySchema.optional(),
+  owner: z.string(),
+  policy_id: z.string().optional(),
+  policy_version: z.string().optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  uncertainty: z.array(z.string()).optional(),
+  resolution: z.string().optional(),
+  resolution_note: z.string().optional(),
+});
+
+export const SupervisorRoleSchema = z.enum(['SUPERVISOR', 'OPERATOR', 'VIEWER']);
+
+export const PriorityWorkerItemSchema = z.object({
+  worker_id: z.string().min(1),
+  site_id: z.string().min(1),
+  zone_id: z.string().min(1),
+  role: WorkerRoleSchema,
+  task_intensity: TaskIntensitySchema,
+  current_risk_level: RiskLevelSchema,
+  current_risk_score: z.number().min(0).max(1),
+  predicted_risk_level: z.union([RiskLevelSchema, z.literal('STABLE')]),
+  predicted_risk_score: z.number().min(0).max(1),
+  threshold_eta_mins: z.number().nullable(),
+  confidence: z.number().min(0).max(1),
+  data_freshness: z.enum(['FRESH', 'AGING', 'STALE']),
+  exposure_duration_mins: z.number().nonnegative(),
+  primary_reason: z.string(),
+  priority_score: z.number(),
+  priority_rank: z.number().int().positive(),
+  priority_reason: z.string(),
+  action_status: z.union([ActionStatusSchema, z.literal('NO_ACTION')]),
+  ack_status: z.enum(['ACK_PENDING', 'ACKNOWLEDGED', 'ESCALATED', 'NONE']),
+  active_incident_id: z.string().optional(),
+});
+
+export const OperationsSummarySchema = z.object({
+  active_workers: z.number().int().nonnegative(),
+  green_count: z.number().int().nonnegative(),
+  watch_count: z.number().int().nonnegative(),
+  elevated_count: z.number().int().nonnegative(),
+  high_count: z.number().int().nonnegative(),
+  critical_count: z.number().int().nonnegative(),
+  predicted_deterioration_count: z.number().int().nonnegative(),
+  pending_ack_count: z.number().int().nonnegative(),
+  active_incidents: z.number().int().nonnegative(),
+  escalated_incidents: z.number().int().nonnegative(),
+  stale_data_count: z.number().int().nonnegative(),
+  fortyguard_status: z.enum(['CONNECTED', 'DISABLED', 'DEGRADED']),
+  risk_engine_status: z.enum(['HEALTHY', 'DEGRADED']),
+  prediction_status: z.enum(['HEALTHY', 'DEGRADED']),
+  action_engine_status: z.enum(['HEALTHY', 'DEGRADED']),
+  system_status: z.enum(['ACTIVE', 'DEGRADED', 'OFFLINE']),
+  data_freshness: z.enum(['FRESH', 'AGING', 'STALE']),
+  last_updated: z.string(),
 });
 
 export const DecisionEventSchema = z.object({

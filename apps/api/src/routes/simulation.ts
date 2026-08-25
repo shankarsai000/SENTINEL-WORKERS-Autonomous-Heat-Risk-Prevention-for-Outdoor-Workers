@@ -41,6 +41,14 @@ export function createSimulationRouter(orchestrator: SentinelOrchestrator): Rout
     });
   });
 
+  router.post('/simulation/reset', (_req: Request, res: Response) => {
+    orchestrator.resetSimulation();
+    res.json({
+      status: 'reset',
+      state: orchestrator.getSimulationState(),
+    });
+  });
+
   router.post('/simulation/step', async (_req: Request, res: Response) => {
     const tickResult = orchestrator.stepSimulation();
     await orchestrator.handleSimulationTick(tickResult);

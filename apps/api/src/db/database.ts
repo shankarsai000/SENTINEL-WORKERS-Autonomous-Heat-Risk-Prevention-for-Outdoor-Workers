@@ -9,6 +9,7 @@ import {
   RiskState,
   Action,
   Incident,
+  IncidentStatus,
   AuditEvent,
   DecisionEvent,
   PredictiveRiskState,
@@ -256,6 +257,27 @@ export class SentinelDatabase {
       } catch (_) {}
     }
 
+    const incidentCols = [
+      'created_at TEXT',
+      'updated_at TEXT',
+      'affected_worker_count INTEGER DEFAULT 0',
+      'common_reason_codes TEXT',
+      'common_factors TEXT',
+      'thermal_context TEXT',
+      'prediction_context TEXT',
+      'action_summary TEXT',
+      'policy_id TEXT',
+      'policy_version TEXT',
+      'confidence REAL',
+      'uncertainty TEXT',
+      'resolution_note TEXT',
+    ];
+    for (const col of incidentCols) {
+      try {
+        this.db.exec(`ALTER TABLE incidents ADD COLUMN ${col};`);
+      } catch (_) {}
+    }
+
     // Initialize P3 & P4 Tables if not present
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS action_deliveries (
@@ -498,6 +520,20 @@ export class SentinelDatabase {
       obs.confidence,
       obs.activity_id ?? null
     );
+  }
+
+  public getRecentObservations(limit: number = 50, siteId?: string): ThermalObservation[] {
+    let sql = 'SELECT * FROM thermal_observations';
+    const params: any[] = [];
+    if (siteId) {
+      sql += ' WHERE site_id = ?';
+      params.push(siteId);
+    }
+    sql += ' ORDER BY timestamp DESC LIMIT ?';
+    params.push(limit);
+
+    const stmt = this.db.prepare(sql);
+    return stmt.all(...params) as ThermalObservation[];
   }
 
   public saveRiskStates(states: RiskState[]): void {
@@ -845,21 +881,57 @@ export class SentinelDatabase {
     return this.getEscalationById(escalationId);
   }
 
-  public getIncidents(): Incident[] {
-    const stmt = this.db.prepare('SELECT * FROM incidents ORDER BY opened_at DESC');
-    const rows = stmt.all() as any[];
-    return rows.map((r) => ({
-      ...r,
-      workers_affected: JSON.parse(r.workers_affected),
-    }));
+  public getIncidents(options?: {
+    site_id?: string;
+    zone_id?: string;
+    status?: string;
+    severity?: string;
+    limit?: number;
+  }): Incident[] {
+    let sql = 'SELECT * FROM incidents WHERE 1=1';
+    const params: any[] = [];
+
+    if (options?.site_id) {
+      sql += ' AND site_id = ?';
+      params.push(options.site_id);
+    }
+    if (options?.zone_id) {
+      sql += ' AND zone_id = ?';
+      params.push(options.zone_id);
+    }
+    if (options?.status) {
+      sql += ' AND status = ?';
+      params.push(options.status);
+    }
+    if (options?.severity) {
+      sql += ' AND severity = ?';
+      params.push(options.severity);
+    }
+
+    sql += ' ORDER BY opened_at DESC LIMIT ?';
+    params.push(options?.limit || 50);
+
+    const stmt = this.db.prepare(sql);
+    const rows = stmt.all(...params) as any[];
+    return rows.map((r) => this.mapIncidentRow(r));
+  }
+
+  public getIncidentById(incidentId: string): Incident | null {
+    const stmt = this.db.prepare('SELECT * FROM incidents WHERE incident_id = ?');
+    const row = stmt.get(incidentId) as any;
+    return row ? this.mapIncidentRow(row) : null;
   }
 
   public saveIncident(inc: Incident): void {
+    const workerIds = inc.worker_ids || inc.workers_affected || [];
     const stmt = this.db.prepare(`
       INSERT OR REPLACE INTO incidents (
-        incident_id, zone_id, site_id, severity, opened_at,
-        workers_affected, owner, closed_at, resolution, summary, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        incident_id, zone_id, site_id, severity, status, opened_at, created_at,
+        updated_at, closed_at, affected_worker_count, workers_affected, summary,
+        common_reason_codes, common_factors, thermal_context, prediction_context,
+        action_summary, owner, policy_id, policy_version, confidence, uncertainty,
+        resolution, resolution_note
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -867,14 +939,215 @@ export class SentinelDatabase {
       inc.zone_id,
       inc.site_id,
       inc.severity,
+      inc.status,
       inc.opened_at,
-      JSON.stringify(inc.workers_affected),
-      inc.owner,
+      inc.created_at || inc.opened_at,
+      inc.updated_at || new Date().toISOString(),
       inc.closed_at ?? null,
-      inc.resolution ?? null,
+      inc.affected_worker_count || workerIds.length,
+      JSON.stringify(workerIds),
       inc.summary,
-      inc.status
+      inc.common_reason_codes ? JSON.stringify(inc.common_reason_codes) : JSON.stringify([]),
+      inc.common_factors ? JSON.stringify(inc.common_factors) : JSON.stringify([]),
+      inc.thermal_context ? JSON.stringify(inc.thermal_context) : null,
+      inc.prediction_context ? JSON.stringify(inc.prediction_context) : null,
+      inc.action_summary ? JSON.stringify(inc.action_summary) : null,
+      inc.owner,
+      inc.policy_id ?? null,
+      inc.policy_version ?? null,
+      inc.confidence ?? null,
+      inc.uncertainty ? JSON.stringify(inc.uncertainty) : JSON.stringify([]),
+      inc.resolution ?? null,
+      inc.resolution_note ?? null
     );
+  }
+
+  public updateIncidentStatus(
+    incidentId: string,
+    status: IncidentStatus,
+    resolution?: string,
+    note?: string,
+    owner?: string
+  ): Incident | null {
+    const now = new Date().toISOString();
+    let sql = 'UPDATE incidents SET status = ?, updated_at = ?';
+    const params: any[] = [status, now];
+
+    if (resolution !== undefined) {
+      sql += ', resolution = ?';
+      params.push(resolution);
+    }
+    if (note !== undefined) {
+      sql += ', resolution_note = ?';
+      params.push(note);
+    }
+    if (owner !== undefined) {
+      sql += ', owner = ?';
+      params.push(owner);
+    }
+    if (status === 'RESOLVED' || status === 'CLOSED') {
+      sql += ', closed_at = ?';
+      params.push(now);
+    }
+
+    sql += ' WHERE incident_id = ?';
+    params.push(incidentId);
+
+    const stmt = this.db.prepare(sql);
+    stmt.run(...params);
+
+    return this.getIncidentById(incidentId);
+  }
+
+  private mapIncidentRow(r: any): Incident {
+    const workerIds = r.workers_affected ? JSON.parse(r.workers_affected) : [];
+    return {
+      incident_id: r.incident_id,
+      zone_id: r.zone_id,
+      site_id: r.site_id,
+      severity: r.severity,
+      status: r.status,
+      opened_at: r.opened_at,
+      created_at: r.created_at || r.opened_at,
+      updated_at: r.updated_at || r.opened_at,
+      closed_at: r.closed_at || undefined,
+      affected_worker_count: r.affected_worker_count ?? workerIds.length,
+      worker_ids: workerIds,
+      workers_affected: workerIds,
+      summary: r.summary,
+      common_reason_codes: r.common_reason_codes ? JSON.parse(r.common_reason_codes) : [],
+      common_factors: r.common_factors ? JSON.parse(r.common_factors) : [],
+      thermal_context: r.thermal_context ? JSON.parse(r.thermal_context) : undefined,
+      prediction_context: r.prediction_context ? JSON.parse(r.prediction_context) : undefined,
+      action_summary: r.action_summary ? JSON.parse(r.action_summary) : undefined,
+      owner: r.owner,
+      policy_id: r.policy_id || undefined,
+      policy_version: r.policy_version || undefined,
+      confidence: r.confidence !== null ? r.confidence : undefined,
+      uncertainty: r.uncertainty ? JSON.parse(r.uncertainty) : [],
+      resolution: r.resolution || undefined,
+      resolution_note: r.resolution_note || undefined,
+    };
+  }
+
+  public getWorkerTimeline(workerId: string, limit: number = 30): any[] {
+    const timeline: any[] = [];
+
+    // 1. Observations
+    const obsRows = this.db
+      .prepare('SELECT observation_id, timestamp, temperature_c, wet_bulb_c, humidity_pct FROM thermal_observations ORDER BY timestamp DESC LIMIT ?')
+      .all(limit) as any[];
+    for (const obs of obsRows) {
+      timeline.push({
+        event_type: 'THERMAL_OBSERVATION',
+        timestamp: obs.timestamp,
+        title: `Thermal Observation: ${obs.temperature_c}°C`,
+        description: `Wet-Bulb: ${obs.wet_bulb_c}°C, Humidity: ${obs.humidity_pct}%`,
+        details: obs,
+      });
+    }
+
+    // 2. Risk states
+    const riskRows = this.db
+      .prepare('SELECT * FROM risk_states WHERE worker_id = ? ORDER BY timestamp DESC LIMIT ?')
+      .all(workerId, limit) as any[];
+    for (const r of riskRows) {
+      timeline.push({
+        event_type: 'RISK_EVALUATION',
+        timestamp: r.timestamp,
+        title: `Risk State: ${r.risk_level} (${Math.round(r.score * 100)}%)`,
+        description: `Reasons: ${r.reason_codes || 'Normal limits'}`,
+        details: r,
+      });
+    }
+
+    // 3. Actions
+    const actRows = this.db
+      .prepare('SELECT * FROM actions WHERE worker_id = ? ORDER BY issued_at DESC LIMIT ?')
+      .all(workerId, limit) as any[];
+    for (const a of actRows) {
+      timeline.push({
+        event_type: 'ACTION_ISSUED',
+        timestamp: a.issued_at,
+        title: `Action: ${a.action_type} (${a.status})`,
+        description: a.message,
+        details: a,
+      });
+      if (a.delivered_at) {
+        timeline.push({
+          event_type: 'ACTION_DELIVERED',
+          timestamp: a.delivered_at,
+          title: `Action Delivered: ${a.action_type}`,
+          description: `Delivered to worker via simulated channel`,
+          details: a,
+        });
+      }
+      if (a.acknowledged_at) {
+        timeline.push({
+          event_type: 'ACTION_ACKNOWLEDGED',
+          timestamp: a.acknowledged_at,
+          title: `Action Acknowledged: ${a.action_type}`,
+          description: `Acknowledged by ${a.actor || 'Worker'}`,
+          details: a,
+        });
+      }
+    }
+
+    // Sort descending by timestamp
+    timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return timeline.slice(0, limit);
+  }
+
+  public getIncidentTimeline(incidentId: string, limit: number = 30): any[] {
+    const inc = this.getIncidentById(incidentId);
+    if (!inc) return [];
+
+    const timeline: any[] = [];
+
+    timeline.push({
+      event_type: 'INCIDENT_DETECTED',
+      timestamp: inc.opened_at,
+      title: `Incident Detected in ${inc.zone_id}`,
+      description: inc.summary,
+      details: { severity: inc.severity, affected_count: inc.affected_worker_count },
+    });
+
+    if (inc.status === 'MITIGATING' || inc.status === 'RESOLVED' || inc.status === 'CLOSED') {
+      timeline.push({
+        event_type: 'INCIDENT_MITIGATING',
+        timestamp: inc.updated_at || inc.opened_at,
+        title: `Mitigation In Progress`,
+        description: `Supervisor assigned: ${inc.owner}`,
+        details: { owner: inc.owner },
+      });
+    }
+
+    if (inc.closed_at) {
+      timeline.push({
+        event_type: 'INCIDENT_RESOLVED',
+        timestamp: inc.closed_at,
+        title: `Incident Resolved`,
+        description: inc.resolution || 'Resolution completed',
+        details: { resolution: inc.resolution, note: inc.resolution_note },
+      });
+    }
+
+    // Audit events for incident
+    const auditRows = this.db
+      .prepare('SELECT * FROM audit_events WHERE payload_ref = ? ORDER BY created_at DESC LIMIT ?')
+      .all(incidentId, limit) as any[];
+    for (const a of auditRows) {
+      timeline.push({
+        event_type: a.event_type,
+        timestamp: a.created_at,
+        title: `Audit: ${a.event_type}`,
+        description: `Payload hash: ${a.payload_hash.slice(0, 16)}...`,
+        details: JSON.parse(a.details),
+      });
+    }
+
+    timeline.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return timeline.slice(0, limit);
   }
 
   // --- Phase P3 Predictive Risk State Persistence & Queries ---
