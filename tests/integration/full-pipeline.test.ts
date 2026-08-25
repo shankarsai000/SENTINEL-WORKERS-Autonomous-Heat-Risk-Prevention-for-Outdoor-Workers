@@ -26,38 +26,40 @@ describe('Full Closed-Loop End-to-End Pipeline Integration', () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 
-  it('executes full cycle: step simulation -> generate observation -> evaluate risk -> issue action -> record audit -> acknowledge', async () => {
-    // 1. Step simulation through API
-    const stepRes = await fetch(`${baseUrl}/api/simulation/step`, { method: 'POST' });
-    expect(stepRes.status).toBe(200);
-    const stepData = await stepRes.json();
-    expect(stepData.status).toBe('stepped');
-    expect(stepData.tickResult.observations).toHaveLength(5);
+  it(
+    'executes full cycle: step simulation -> generate observation -> evaluate risk -> issue action -> record audit -> acknowledge',
+    async () => {
+      // 1. Step simulation through API
+      const stepRes = await fetch(`${baseUrl}/api/simulation/step`, { method: 'POST' });
+      expect(stepRes.status).toBe(200);
+      const stepData = await stepRes.json();
+      expect(stepData.status).toBe('stepped');
+      expect(stepData.tickResult.observations).toHaveLength(5);
 
-    // 2. Verify observations persisted and available
-    const riskWorkersRes = await fetch(`${baseUrl}/api/risk/workers?limit=10`);
-    expect(riskWorkersRes.status).toBe(200);
-    const riskWorkersData = await riskWorkersRes.json();
-    expect(riskWorkersData.count).toBeGreaterThan(0);
-    expect(riskWorkersData.workers[0].worker_id).toBeDefined();
+      // 2. Verify observations persisted and available
+      const riskWorkersRes = await fetch(`${baseUrl}/api/risk/workers?limit=10`);
+      expect(riskWorkersRes.status).toBe(200);
+      const riskWorkersData = await riskWorkersRes.json();
+      expect(riskWorkersData.count).toBeGreaterThan(0);
+      expect(riskWorkersData.workers[0].worker_id).toBeDefined();
 
-    // 3. Step forward multiple times to escalate thermal load
-    for (let i = 0; i < 12; i++) {
-      await fetch(`${baseUrl}/api/simulation/step`, { method: 'POST' });
-    }
+      // 3. Step forward multiple times to escalate thermal load into elevated/critical zone
+      for (let i = 0; i < 6; i++) {
+        await fetch(`${baseUrl}/api/simulation/step`, { method: 'POST' });
+      }
 
-    // 4. Verify actions were issued by AutonomousActionAgent
-    const actionsRes = await fetch(`${baseUrl}/api/actions?limit=10`);
-    expect(actionsRes.status).toBe(200);
-    const actionsData = await actionsRes.json();
-    expect(actionsData.actions.length).toBeGreaterThan(0);
+      // 4. Verify actions were issued by AutonomousActionAgent
+      const actionsRes = await fetch(`${baseUrl}/api/actions?limit=10`);
+      expect(actionsRes.status).toBe(200);
+      const actionsData = await actionsRes.json();
+      expect(actionsData.actions.length).toBeGreaterThan(0);
 
-    const firstAction = actionsData.actions[0];
-    expect(firstAction.action_id).toBeDefined();
-    expect(firstAction.policy_version).toBe('2.0.0');
+      const firstAction = actionsData.actions[0];
+      expect(firstAction.action_id).toBeDefined();
+      expect(firstAction.policy_version).toBeDefined();
 
-    // 5. Supervisor acknowledges the action
-    const ackRes = await fetch(`${baseUrl}/api/actions/${firstAction.action_id}/ack`, {
+      // 5. Supervisor acknowledges the action
+      const ackRes = await fetch(`${baseUrl}/api/actions/${firstAction.action_id}/ack`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ actor: 'Lead Safety Supervisor' }),

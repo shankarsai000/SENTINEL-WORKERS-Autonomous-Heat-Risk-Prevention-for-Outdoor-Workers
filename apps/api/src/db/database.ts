@@ -11,7 +11,12 @@ import {
   Incident,
   AuditEvent,
   DecisionEvent,
+  PredictiveRiskState,
+  PredictionEvent,
+  ModelVersion,
 } from '@sentinel/schemas';
+import { LogisticRegressionPredictionModel } from '@sentinel/prediction-engine';
+import { BaselineDeterministicModel } from '@sentinel/prediction-engine';
 import { PHOENIX_CONSTRUCTION_SITES, generateSyntheticWorkers } from '@sentinel/simulation';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -208,9 +213,119 @@ export class SentinelDatabase {
         this.db.exec(`ALTER TABLE risk_states ADD COLUMN ${col};`);
       } catch (_) {}
     }
+
+    const modelCols = [
+      'model_type TEXT',
+      'feature_schema_version TEXT',
+      'status TEXT',
+      'created_at TEXT',
+    ];
+    for (const col of modelCols) {
+      try {
+        this.db.exec(`ALTER TABLE model_versions ADD COLUMN ${col};`);
+      } catch (_) {}
+    }
+
+    // Initialize P3 Tables if not present
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS predictive_risk_states (
+        prediction_id TEXT PRIMARY KEY,
+        worker_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        current_risk_level TEXT NOT NULL,
+        current_risk_score REAL NOT NULL,
+        p_elevated_30m REAL,
+        p_critical_60m REAL,
+        expected_time_to_threshold_minutes INTEGER,
+        predicted_risk_level TEXT NOT NULL,
+        predictive_state TEXT NOT NULL,
+        prediction_confidence REAL NOT NULL,
+        uncertainty_band TEXT NOT NULL,
+        prediction_status TEXT NOT NULL,
+        prediction_source TEXT NOT NULL,
+        early_warning INTEGER NOT NULL,
+        predictive_reason_codes TEXT NOT NULL,
+        feature_contributions TEXT NOT NULL,
+        feature_snapshot_id TEXT,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        source_risk_state_id TEXT,
+        source_observation_ids TEXT NOT NULL,
+        policy_id TEXT NOT NULL,
+        policy_version TEXT NOT NULL,
+        FOREIGN KEY (worker_id) REFERENCES workers(worker_id),
+        FOREIGN KEY (site_id) REFERENCES sites(site_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS prediction_events (
+        event_id TEXT PRIMARY KEY,
+        timestamp TEXT NOT NULL,
+        worker_id TEXT NOT NULL,
+        site_id TEXT NOT NULL,
+        event_type TEXT NOT NULL,
+        prediction_status TEXT NOT NULL,
+        predicted_level TEXT NOT NULL,
+        p_elevated_30m REAL,
+        p_critical_60m REAL,
+        expected_time_to_threshold_minutes INTEGER,
+        early_warning INTEGER NOT NULL,
+        model_id TEXT NOT NULL,
+        model_version TEXT NOT NULL,
+        feature_snapshot_id TEXT,
+        reason_codes TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS model_versions (
+        model_id TEXT PRIMARY KEY,
+        version TEXT NOT NULL,
+        model_type TEXT NOT NULL,
+        feature_schema_version TEXT NOT NULL,
+        training_data_ref TEXT NOT NULL,
+        metrics TEXT NOT NULL,
+        created_at TEXT,
+        deployed_at TEXT NOT NULL,
+        status TEXT NOT NULL
+      );
+    `);
   }
 
   public seedInitialData(): void {
+    // Seed model versions
+    const modelCount = this.db.prepare('SELECT count(*) as count FROM model_versions').get() as { count: number };
+    if (modelCount.count === 0) {
+      const insertModel = this.db.prepare(`
+        INSERT INTO model_versions (model_id, version, model_type, feature_schema_version, training_data_ref, metrics, created_at, deployed_at, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const logistic = new LogisticRegressionPredictionModel().metadata;
+      const baseline = new BaselineDeterministicModel().metadata;
+
+      insertModel.run(
+        logistic.model_id,
+        logistic.version,
+        logistic.model_type,
+        logistic.feature_schema_version,
+        logistic.training_data_ref,
+        JSON.stringify(logistic.metrics),
+        logistic.created_at ?? new Date().toISOString(),
+        logistic.deployed_at,
+        logistic.status
+      );
+
+      insertModel.run(
+        baseline.model_id,
+        baseline.version,
+        baseline.model_type,
+        baseline.feature_schema_version,
+        baseline.training_data_ref,
+        JSON.stringify(baseline.metrics),
+        baseline.created_at ?? new Date().toISOString(),
+        baseline.deployed_at,
+        baseline.status
+      );
+    }
     const siteCount = this.db.prepare('SELECT count(*) as count FROM sites').get() as { count: number };
     if (siteCount.count === 0) {
       const insertSite = this.db.prepare(`
@@ -514,6 +629,157 @@ export class SentinelDatabase {
       inc.summary,
       inc.status
     );
+  }
+
+  // --- Phase P3 Predictive Risk State Persistence & Queries ---
+
+  public savePredictiveRiskStates(states: PredictiveRiskState[]): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO predictive_risk_states (
+        prediction_id, worker_id, site_id, timestamp, current_risk_level,
+        current_risk_score, p_elevated_30m, p_critical_60m,
+        expected_time_to_threshold_minutes, predicted_risk_level,
+        predictive_state, prediction_confidence, uncertainty_band,
+        prediction_status, prediction_source, early_warning,
+        predictive_reason_codes, feature_contributions, feature_snapshot_id,
+        model_id, model_version, source_risk_state_id, source_observation_ids,
+        policy_id, policy_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertTx = this.db.transaction((items: PredictiveRiskState[]) => {
+      for (const s of items) {
+        stmt.run(
+          s.prediction_id,
+          s.worker_id,
+          s.site_id,
+          s.timestamp,
+          s.current_risk_level,
+          s.current_risk_score,
+          s.p_elevated_30m ?? null,
+          s.p_critical_60m ?? null,
+          s.expected_time_to_threshold_minutes ?? null,
+          s.predicted_risk_level,
+          s.predictive_state,
+          s.prediction_confidence,
+          s.uncertainty_band,
+          s.prediction_status,
+          s.prediction_source,
+          s.early_warning ? 1 : 0,
+          JSON.stringify(s.predictive_reason_codes),
+          JSON.stringify(s.feature_contributions),
+          s.feature_snapshot_id ?? null,
+          s.model_id,
+          s.model_version,
+          s.source_risk_state_id ?? null,
+          JSON.stringify(s.source_observation_ids),
+          s.policy_id,
+          s.policy_version
+        );
+      }
+    });
+
+    insertTx(states);
+  }
+
+  public getLatestPredictiveRiskStates(): PredictiveRiskState[] {
+    const stmt = this.db.prepare(`
+      SELECT p.* FROM predictive_risk_states p
+      INNER JOIN (
+        SELECT worker_id, MAX(timestamp) as max_ts
+        FROM predictive_risk_states
+        GROUP BY worker_id
+      ) latest ON p.worker_id = latest.worker_id AND p.timestamp = latest.max_ts
+      ORDER BY p.p_critical_60m DESC, p.p_elevated_30m DESC
+    `);
+
+    const rows = stmt.all() as any[];
+    return rows.map((r) => this.mapPredictiveRiskStateRow(r));
+  }
+
+  public getWorkerPredictiveHistory(workerId: string, limit: number = 20): PredictiveRiskState[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM predictive_risk_states
+      WHERE worker_id = ?
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(workerId, limit) as any[];
+    return rows.map((r) => this.mapPredictiveRiskStateRow(r));
+  }
+
+  private mapPredictiveRiskStateRow(r: any): PredictiveRiskState {
+    return {
+      ...r,
+      early_warning: Boolean(r.early_warning),
+      predictive_reason_codes: r.predictive_reason_codes ? JSON.parse(r.predictive_reason_codes) : [],
+      feature_contributions: r.feature_contributions ? JSON.parse(r.feature_contributions) : {},
+      source_observation_ids: r.source_observation_ids ? JSON.parse(r.source_observation_ids) : [],
+    };
+  }
+
+  public savePredictionEvents(events: PredictionEvent[]): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO prediction_events (
+        event_id, timestamp, worker_id, site_id, event_type,
+        prediction_status, predicted_level, p_elevated_30m,
+        p_critical_60m, expected_time_to_threshold_minutes, early_warning,
+        model_id, model_version, feature_snapshot_id, reason_codes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertTx = this.db.transaction((items: PredictionEvent[]) => {
+      for (const ev of items) {
+        stmt.run(
+          ev.event_id,
+          ev.timestamp,
+          ev.worker_id,
+          ev.site_id,
+          ev.event_type,
+          ev.prediction_status,
+          ev.predicted_level,
+          ev.p_elevated_30m ?? null,
+          ev.p_critical_60m ?? null,
+          ev.expected_time_to_threshold_minutes ?? null,
+          ev.early_warning ? 1 : 0,
+          ev.model_id,
+          ev.model_version,
+          ev.feature_snapshot_id ?? null,
+          JSON.stringify(ev.reason_codes)
+        );
+      }
+    });
+
+    insertTx(events);
+  }
+
+  public getPredictionEvents(limit: number = 50): PredictionEvent[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM prediction_events
+      ORDER BY timestamp DESC
+      LIMIT ?
+    `);
+
+    const rows = stmt.all(limit) as any[];
+    return rows.map((r) => ({
+      ...r,
+      early_warning: Boolean(r.early_warning),
+      reason_codes: r.reason_codes ? JSON.parse(r.reason_codes) : [],
+    }));
+  }
+
+  public getModelVersions(): ModelVersion[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM model_versions
+      ORDER BY deployed_at DESC
+    `);
+
+    const rows = stmt.all() as any[];
+    return rows.map((r) => ({
+      ...r,
+      metrics: JSON.parse(r.metrics),
+    }));
   }
 
   public close(): void {

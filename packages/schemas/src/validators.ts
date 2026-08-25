@@ -247,3 +247,94 @@ export const AuditEventSchema = z.object({
   details: z.record(z.unknown()),
   created_at: z.string(),
 });
+
+export const PredictionStatusSchema = z.enum([
+  'AVAILABLE',
+  'INSUFFICIENT_DATA',
+  'STALE_DATA',
+  'LOW_CONFIDENCE',
+  'MODEL_ERROR',
+  'UNSUPPORTED_CONTEXT',
+]);
+
+export const PredictionUncertaintyBandSchema = z.enum(['LOW', 'MEDIUM', 'HIGH']);
+
+export const PredictiveStateSchema = z.enum([
+  'NO_PREDICTION',
+  'STABLE',
+  'DETERIORATING',
+  'PREDICTED_ELEVATED',
+  'PREDICTED_HIGH',
+  'PREDICTED_CRITICAL',
+]);
+
+export const PredictionSourceSchema = z.enum([
+  'PROVIDER_FORECAST',
+  'TREND_EXTRAPOLATION',
+  'HISTORICAL_REPLAY',
+]);
+
+export const PredictiveRiskStateSchema = z.object({
+  prediction_id: z.string().min(1),
+  worker_id: z.string().min(1),
+  site_id: z.string().min(1),
+  timestamp: z.string(),
+  current_risk_level: RiskLevelSchema,
+  current_risk_score: z.number().min(0).max(1),
+  p_elevated_30m: z.number().min(0).max(1).nullable(),
+  p_critical_60m: z.number().min(0).max(1).nullable(),
+  expected_time_to_threshold_minutes: z.number().int().nonnegative().nullable(),
+  predicted_risk_level: RiskLevelSchema,
+  predictive_state: PredictiveStateSchema,
+  prediction_confidence: z.number().min(0).max(1),
+  uncertainty_band: PredictionUncertaintyBandSchema,
+  prediction_status: PredictionStatusSchema,
+  prediction_source: PredictionSourceSchema,
+  early_warning: z.boolean(),
+  predictive_reason_codes: z.array(z.string()),
+  feature_contributions: z.record(z.number()),
+  feature_snapshot_id: z.string().optional(),
+  model_id: z.string().min(1),
+  model_version: z.string().min(1),
+  source_risk_state_id: z.string().optional(),
+  source_observation_ids: z.array(z.string()),
+  policy_id: z.string().min(1),
+  policy_version: z.string().min(1),
+});
+
+export const PredictionEventSchema = z.object({
+  event_id: z.string().min(1),
+  timestamp: z.string(),
+  worker_id: z.string().min(1),
+  site_id: z.string().min(1),
+  event_type: z.enum([
+    'prediction.calculated',
+    'prediction.updated',
+    'prediction.early_warning',
+    'prediction.unavailable',
+    'prediction.model_error',
+    'prediction.threshold_eta_changed',
+  ]),
+  prediction_status: PredictionStatusSchema,
+  predicted_level: RiskLevelSchema,
+  p_elevated_30m: z.number().min(0).max(1).nullable(),
+  p_critical_60m: z.number().min(0).max(1).nullable(),
+  expected_time_to_threshold_minutes: z.number().int().nonnegative().nullable(),
+  early_warning: z.boolean(),
+  model_id: z.string().min(1),
+  model_version: z.string().min(1),
+  feature_snapshot_id: z.string().optional(),
+  reason_codes: z.array(z.string()),
+});
+
+export const ModelVersionSchema = z.object({
+  model_id: z.string().min(1),
+  version: z.string().min(1),
+  model_type: z.enum(['BASELINE_DETERMINISTIC', 'LOGISTIC_REGRESSION', 'EXPONENTIAL_SMOOTHING']),
+  feature_schema_version: z.string().min(1),
+  training_data_ref: z.string().min(1),
+  metrics: z.record(z.union([z.number(), z.string()])),
+  created_at: z.string().optional(),
+  deployed_at: z.string(),
+  status: z.enum(['ACTIVE', 'CANDIDATE', 'DEPRECATED']),
+});

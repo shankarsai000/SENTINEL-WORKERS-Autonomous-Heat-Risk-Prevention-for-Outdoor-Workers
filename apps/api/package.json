@@ -13,6 +13,7 @@
   "dependencies": {
     "@sentinel/fortyguard-provider": "*",
     "@sentinel/policy": "*",
+    "@sentinel/prediction-engine": "*",
     "@sentinel/risk-engine": "*",
     "@sentinel/schemas": "*",
     "@sentinel/simulation": "*",

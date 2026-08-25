@@ -79,6 +79,46 @@ export interface RiskState {
   worker_metadata?: Worker;
 }
 
+export interface PredictiveRiskState {
+  prediction_id: string;
+  worker_id: string;
+  site_id: string;
+  timestamp: string;
+  current_risk_level: 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
+  current_risk_score: number;
+  p_elevated_30m: number | null;
+  p_critical_60m: number | null;
+  expected_time_to_threshold_minutes: number | null;
+  predicted_risk_level: 'GREEN' | 'WATCH' | 'ELEVATED' | 'HIGH' | 'CRITICAL';
+  predictive_state: 'NO_PREDICTION' | 'STABLE' | 'DETERIORATING' | 'PREDICTED_ELEVATED' | 'PREDICTED_HIGH' | 'PREDICTED_CRITICAL';
+  prediction_confidence: number;
+  uncertainty_band: 'LOW' | 'MEDIUM' | 'HIGH';
+  prediction_status: 'AVAILABLE' | 'INSUFFICIENT_DATA' | 'STALE_DATA' | 'LOW_CONFIDENCE' | 'MODEL_ERROR' | 'UNSUPPORTED_CONTEXT';
+  prediction_source: 'PROVIDER_FORECAST' | 'TREND_EXTRAPOLATION' | 'HISTORICAL_REPLAY';
+  early_warning: boolean;
+  predictive_reason_codes: string[];
+  feature_contributions: Record<string, number>;
+  feature_snapshot_id?: string;
+  model_id: string;
+  model_version: string;
+  source_risk_state_id?: string;
+  source_observation_ids: string[];
+  policy_id: string;
+  policy_version: string;
+  worker_metadata?: Worker;
+}
+
+export interface PredictionSummary {
+  total_predictions: number;
+  available_predictions: number;
+  early_warning_count: number;
+  deteriorating_count: number;
+  predicted_high_count: number;
+  predicted_critical_count: number;
+  average_confidence: number;
+  timestamp: string;
+}
+
 export interface DecisionEvent {
   event_id: string;
   timestamp?: string;

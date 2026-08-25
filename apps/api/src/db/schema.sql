@@ -144,13 +144,68 @@ CREATE TABLE IF NOT EXISTS api_usage (
 CREATE TABLE IF NOT EXISTS model_versions (
   model_id TEXT PRIMARY KEY,
   version TEXT NOT NULL,
-  metrics TEXT NOT NULL,
+  model_type TEXT NOT NULL,
+  feature_schema_version TEXT NOT NULL,
   training_data_ref TEXT NOT NULL,
-  deployed_at TEXT NOT NULL
+  metrics TEXT NOT NULL,
+  created_at TEXT,
+  deployed_at TEXT NOT NULL,
+  status TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS predictive_risk_states (
+  prediction_id TEXT PRIMARY KEY,
+  worker_id TEXT NOT NULL,
+  site_id TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  current_risk_level TEXT NOT NULL,
+  current_risk_score REAL NOT NULL,
+  p_elevated_30m REAL,
+  p_critical_60m REAL,
+  expected_time_to_threshold_minutes INTEGER,
+  predicted_risk_level TEXT NOT NULL,
+  predictive_state TEXT NOT NULL,
+  prediction_confidence REAL NOT NULL,
+  uncertainty_band TEXT NOT NULL,
+  prediction_status TEXT NOT NULL,
+  prediction_source TEXT NOT NULL,
+  early_warning INTEGER NOT NULL,
+  predictive_reason_codes TEXT NOT NULL,
+  feature_contributions TEXT NOT NULL,
+  feature_snapshot_id TEXT,
+  model_id TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  source_risk_state_id TEXT,
+  source_observation_ids TEXT NOT NULL,
+  policy_id TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  FOREIGN KEY (worker_id) REFERENCES workers(worker_id),
+  FOREIGN KEY (site_id) REFERENCES sites(site_id)
+);
+
+CREATE TABLE IF NOT EXISTS prediction_events (
+  event_id TEXT PRIMARY KEY,
+  timestamp TEXT NOT NULL,
+  worker_id TEXT NOT NULL,
+  site_id TEXT NOT NULL,
+  event_type TEXT NOT NULL,
+  prediction_status TEXT NOT NULL,
+  predicted_level TEXT NOT NULL,
+  p_elevated_30m REAL,
+  p_critical_60m REAL,
+  expected_time_to_threshold_minutes INTEGER,
+  early_warning INTEGER NOT NULL,
+  model_id TEXT NOT NULL,
+  model_version TEXT NOT NULL,
+  feature_snapshot_id TEXT,
+  reason_codes TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_obs_site_time ON thermal_observations(site_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_risk_worker_time ON risk_states(worker_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_risk_site_level ON risk_states(site_id, level);
+CREATE INDEX IF NOT EXISTS idx_pred_worker_time ON predictive_risk_states(worker_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_pred_site_time ON predictive_risk_states(site_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_pred_events_time ON prediction_events(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_actions_worker ON actions(worker_id, issued_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(created_at DESC);

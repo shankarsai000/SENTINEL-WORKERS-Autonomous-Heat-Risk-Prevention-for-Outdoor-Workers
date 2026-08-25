@@ -241,9 +241,104 @@ export interface AuditEvent {
 export interface ModelVersion {
   model_id: string;
   version: string;
-  metrics: Record<string, number | string>;
+  model_type: 'BASELINE_DETERMINISTIC' | 'LOGISTIC_REGRESSION' | 'EXPONENTIAL_SMOOTHING';
+  feature_schema_version: string;
   training_data_ref: string;
+  metrics: Record<string, number | string>;
+  created_at?: string;
   deployed_at: string;
+  status: 'ACTIVE' | 'CANDIDATE' | 'DEPRECATED';
+}
+
+export type PredictionStatus =
+  | 'AVAILABLE'
+  | 'INSUFFICIENT_DATA'
+  | 'STALE_DATA'
+  | 'LOW_CONFIDENCE'
+  | 'MODEL_ERROR'
+  | 'UNSUPPORTED_CONTEXT';
+
+export type PredictionUncertaintyBand = 'LOW' | 'MEDIUM' | 'HIGH';
+
+export type PredictiveState =
+  | 'NO_PREDICTION'
+  | 'STABLE'
+  | 'DETERIORATING'
+  | 'PREDICTED_ELEVATED'
+  | 'PREDICTED_HIGH'
+  | 'PREDICTED_CRITICAL';
+
+export type PredictionSource =
+  | 'PROVIDER_FORECAST'
+  | 'TREND_EXTRAPOLATION'
+  | 'HISTORICAL_REPLAY';
+
+export interface PredictiveRiskState {
+  prediction_id: string;
+  worker_id: string;
+  site_id: string;
+  timestamp: string;
+
+  // Current P2 Baseline State
+  current_risk_level: RiskLevel;
+  current_risk_score: number;
+
+  // Probability Horizons
+  p_elevated_30m: number | null;
+  p_critical_60m: number | null;
+
+  // Threshold ETA
+  expected_time_to_threshold_minutes: number | null;
+
+  // Predicted State & Trajectory
+  predicted_risk_level: RiskLevel;
+  predictive_state: PredictiveState;
+
+  // Confidence & Uncertainty
+  prediction_confidence: number; // 0.0 - 1.0
+  uncertainty_band: PredictionUncertaintyBand;
+  prediction_status: PredictionStatus;
+  prediction_source: PredictionSource;
+
+  // Operational Early Warning Flag
+  early_warning: boolean;
+
+  // Explainability
+  predictive_reason_codes: string[];
+  feature_contributions: Record<string, number>;
+  feature_snapshot_id?: string;
+
+  // Provenance & Audit
+  model_id: string;
+  model_version: string;
+  source_risk_state_id?: string;
+  source_observation_ids: string[];
+  policy_id: string;
+  policy_version: string;
+}
+
+export interface PredictionEvent {
+  event_id: string;
+  timestamp: string;
+  worker_id: string;
+  site_id: string;
+  event_type:
+    | 'prediction.calculated'
+    | 'prediction.updated'
+    | 'prediction.early_warning'
+    | 'prediction.unavailable'
+    | 'prediction.model_error'
+    | 'prediction.threshold_eta_changed';
+  prediction_status: PredictionStatus;
+  predicted_level: RiskLevel;
+  p_elevated_30m: number | null;
+  p_critical_60m: number | null;
+  expected_time_to_threshold_minutes: number | null;
+  early_warning: boolean;
+  model_id: string;
+  model_version: string;
+  feature_snapshot_id?: string;
+  reason_codes: string[];
 }
 
 export interface APIUsage {

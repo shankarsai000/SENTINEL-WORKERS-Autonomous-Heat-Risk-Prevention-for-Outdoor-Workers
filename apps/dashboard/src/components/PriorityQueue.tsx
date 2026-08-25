@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldAlert, ArrowUpRight, CheckCircle, Clock } from 'lucide-react';
+import { ShieldAlert, ArrowUpRight, Clock, AlertTriangle } from 'lucide-react';
 import { RiskState } from '../types.js';
 
 interface PriorityQueueProps {
@@ -37,7 +37,7 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
           Supervisor Priority Attention Queue
         </h2>
         <span style={{ fontSize: '0.75rem', color: '#94a3b8', fontFamily: 'JetBrains Mono' }}>
-          TOP 10 ACTIONABLE • CONTEXTUAL RISK ENGINE
+          TOP 10 ACTIONABLE • PREDICTIVE LEAD-TIME ACTIVE
         </span>
       </div>
 
@@ -54,11 +54,11 @@ export const PriorityQueue: React.FC<PriorityQueueProps> = ({ riskStates, onSele
                 <th>Site</th>
                 <th>Intensity</th>
                 <th>Exposure</th>
-                <th>Score</th>
+                <th>Current Score</th>
                 <th>Confidence</th>
                 <th>Primary Reasons</th>
                 <th>Data</th>
-                <th>Status</th>
+                <th>Current Risk</th>
                 <th></th>
               </tr>
             </thead>

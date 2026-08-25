@@ -7,11 +7,14 @@ import {
   Site,
   SimulationState,
   DecisionEvent,
+  PredictiveRiskState,
+  PredictionEvent,
 } from '@sentinel/schemas';
 import { OfflineSimulationEngine, SimulationTickResult } from '@sentinel/simulation';
 import { PolicyGuardrails, DEFAULT_PHOENIX_POLICY, PolicyLoader } from '@sentinel/policy';
 import { FortyGuardAdapter } from '@sentinel/fortyguard-provider';
-import { ContextualRiskEngine } from '@sentinel/risk-engine';
+import { ContextualRiskEngine, buildWorkerRiskContext, buildSiteRiskContext, calculateZoneClusterContext } from '@sentinel/risk-engine';
+import { ShortHorizonRiskPredictor } from '@sentinel/prediction-engine';
 import { SentinelDatabase } from '../db/database.js';
 import { AuditService } from './audit-service.js';
 import { SentinelWebSocketServer } from './websocket-server.js';
@@ -29,10 +32,12 @@ export class SentinelOrchestrator {
   private wsServer?: SentinelWebSocketServer;
   private fortyGuard: FortyGuardAdapter;
   private riskEngine: ContextualRiskEngine;
+  private predictor: ShortHorizonRiskPredictor;
   private riskServiceUrl: string;
   private thermalDataMode: ThermalDataMode;
   private workerExposureTracker: Map<string, { exposureMins: number; recoveryMins: number }> = new Map();
   private activeClusterIncidents: Map<string, Incident> = new Map();
+  private siteObservationHistory: Map<string, ThermalObservation[]> = new Map();
 
   constructor(
     db: SentinelDatabase,
@@ -41,7 +46,8 @@ export class SentinelOrchestrator {
     wsServer?: SentinelWebSocketServer,
     riskServiceUrl: string = process.env.RISK_SERVICE_URL || 'http://localhost:8000',
     fortyGuardAdapter?: FortyGuardAdapter,
-    initialMode?: ThermalDataMode
+    initialMode?: ThermalDataMode,
+    predictor?: ShortHorizonRiskPredictor
   ) {
     this.db = db;
     this.audit = audit;
@@ -50,6 +56,7 @@ export class SentinelOrchestrator {
     this.guardrails = new PolicyGuardrails(DEFAULT_PHOENIX_POLICY);
     this.fortyGuard = fortyGuardAdapter || new FortyGuardAdapter({ offlineFallback: true });
     this.riskEngine = new ContextualRiskEngine(PolicyLoader.getPolicy());
+    this.predictor = predictor || new ShortHorizonRiskPredictor();
     this.riskServiceUrl = riskServiceUrl;
     this.thermalDataMode = initialMode || (process.env.THERMAL_DATA_MODE as ThermalDataMode) || 'offline';
 
@@ -83,6 +90,10 @@ export class SentinelOrchestrator {
 
   public getRiskEngine(): ContextualRiskEngine {
     return this.riskEngine;
+  }
+
+  public getPredictor(): ShortHorizonRiskPredictor {
+    return this.predictor;
   }
 
   public getSimulationState(): SimulationState {
@@ -212,6 +223,12 @@ export class SentinelOrchestrator {
   private async processSingleObservation(obs: ThermalObservation, tick: number): Promise<void> {
     // 1. Ingest & Persist Observation
     this.db.saveObservation(obs);
+
+    // Maintain sliding historical window of observations for this site (last 12 obs = 3h)
+    const siteHistory = this.siteObservationHistory.get(obs.site_id) || [];
+    const updatedHistory = [...siteHistory.slice(-11), obs];
+    this.siteObservationHistory.set(obs.site_id, updatedHistory);
+
     this.audit.recordAuditEvent('OBSERVATION_INGESTED', obs.observation_id, {
       site_id: obs.site_id,
       temperature_c: obs.temperature_c,
@@ -237,7 +254,7 @@ export class SentinelOrchestrator {
       longitude: -112.074,
       zone_id: `ZONE-${obs.site_id}`,
       worker_count: workers.length,
-      cooling_resources: { ac_trailers: 2, shade_stations: 4, water_gallons: 200 },
+      cooling_resources: { shade_stations: 4, water_points: 6, misting_fans: 2, ac_trailers: 1 },
       emergency_policy_id: 'demo-construction-v1',
     };
 
@@ -293,7 +310,65 @@ export class SentinelOrchestrator {
       risk_states: evalResult.riskStates,
     });
 
-    // 8. Cluster Incident Detection
+    // 8. Phase P3 Short-Horizon Prediction Pipeline
+    const workerContexts = workers.map((w) =>
+      buildWorkerRiskContext(w, {
+        currentTime: obs.timestamp,
+        isActive: true,
+      })
+    );
+
+    const siteCtx = buildSiteRiskContext(site, workers.length);
+    const clusterCtx = calculateZoneClusterContext(
+      site.zone_id,
+      workers.map((w, idx) => ({
+        zone_id: site.zone_id,
+        level: evalResult.riskStates[idx]?.level || 'GREEN',
+        active: true,
+      }))
+    );
+
+    const riskMap = new Map<string, RiskState>();
+    for (const r of evalResult.riskStates) {
+      riskMap.set(r.worker_id, r);
+    }
+
+    // Historical observations excluding current one
+    const historyObs = updatedHistory.slice(0, -1);
+
+    const predResult = this.predictor.predictBatch({
+      currentObservation: obs,
+      workers: workerContexts,
+      siteCtx,
+      clusterCtx,
+      currentRisks: riskMap,
+      observationHistory: historyObs,
+      source: obs.source === 'fortyguard' ? 'PROVIDER_FORECAST' : 'TREND_EXTRAPOLATION',
+    });
+
+    // Persist P3 Predictions & Events
+    this.db.savePredictiveRiskStates(predResult.predictions);
+    this.db.savePredictionEvents(predResult.events);
+
+    // Broadcast Predictions Batch to Dashboard
+    this.wsServer?.broadcast('PREDICTION_UPDATE', {
+      site_id: obs.site_id,
+      timestamp: obs.timestamp,
+      predictions: predResult.predictions,
+    });
+
+    // Check for Early Warnings and broadcast
+    const earlyWarnings = predResult.predictions.filter((p: PredictiveRiskState) => p.early_warning);
+    if (earlyWarnings.length > 0) {
+      this.wsServer?.broadcast('EARLY_WARNING', {
+        site_id: obs.site_id,
+        timestamp: obs.timestamp,
+        count: earlyWarnings.length,
+        early_warnings: earlyWarnings,
+      });
+    }
+
+    // 9. Cluster Incident Detection
     if (criticalWorkersInZone.length >= 3) {
       this.handleClusterIncident(obs.site_id, criticalWorkersInZone, obs.temperature_c);
     }

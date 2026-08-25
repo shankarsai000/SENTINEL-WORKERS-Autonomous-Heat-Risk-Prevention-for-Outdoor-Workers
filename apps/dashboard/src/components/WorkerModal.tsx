@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { X, Check, XCircle, Clock, User, Shield, Activity, Database, AlertTriangle } from 'lucide-react';
-import { RiskState } from '../types.js';
+import { X, Check, XCircle, Clock, User, Shield, Activity, TrendingUp, AlertTriangle } from 'lucide-react';
+import { RiskState, PredictiveRiskState } from '../types.js';
 
 interface WorkerModalProps {
-  worker: RiskState | null;
+  worker: (RiskState & { prediction?: PredictiveRiskState }) | null;
   onClose: () => void;
   onAcknowledge: (workerId: string) => void;
   onOverride: (workerId: string, reason: string) => void;
@@ -34,14 +34,24 @@ export const WorkerModal: React.FC<WorkerModalProps> = ({
     return '#10b981';
   };
 
+  const getBadgeClass = (level: string) => {
+    switch (level) {
+      case 'CRITICAL': return 'badge-critical';
+      case 'HIGH': return 'badge-high';
+      case 'ELEVATED': return 'badge-elevated';
+      case 'WATCH': return 'badge-watch';
+      default: return 'badge-green';
+    }
+  };
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 640 }}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <User size={18} color="#f97316" />
             <h3 style={{ fontSize: '1rem', fontWeight: 700, fontFamily: 'JetBrains Mono' }}>
-              WORKER CONTEXT & AUDIT: {worker.worker_id}
+              WORKER PROFILE: {worker.worker_id}
             </h3>
           </div>
           <button className="btn" style={{ padding: 4 }} onClick={onClose}>
@@ -50,23 +60,67 @@ export const WorkerModal: React.FC<WorkerModalProps> = ({
         </div>
 
         <div className="modal-body">
-          {/* Top Banner */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#090e18', padding: 12, borderRadius: 8, border: '1px solid #1e293b' }}>
-            <div>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>ASSIGNED LOCATION</div>
-              <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>{worker.site_id}</div>
-              <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Policy: {worker.policy_id || 'demo-construction-v1'} (v{worker.policy_version || '1.0.0'})</div>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>CONTEXTUAL RISK SCORE</div>
-              <div style={{ fontSize: '1.3rem', fontWeight: 800, fontFamily: 'JetBrains Mono', color: worker.score >= 0.85 ? '#ef4444' : worker.score >= 0.7 ? '#f97316' : '#10b981' }}>
-                {worker.score.toFixed(2)} ({worker.level})
+          {/* Dual Current vs Predicted Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+            {/* CURRENT RISK (P2) */}
+            <div style={{ background: '#090e18', padding: 12, borderRadius: 8, border: '1px solid #1e293b' }}>
+              <div style={{ fontSize: '0.7rem', color: '#94a3b8', textTransform: 'uppercase', fontFamily: 'JetBrains Mono', marginBottom: 4 }}>
+                CURRENT RISK (P2 CONTEXTUAL)
               </div>
-              <div style={{ fontSize: '0.72rem', color: '#38bdf8', fontFamily: 'JetBrains Mono' }}>
-                Confidence: {Math.round(worker.confidence * 100)}%
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span className={`badge ${getBadgeClass(worker.level)}`} style={{ fontSize: '0.85rem', padding: '4px 8px' }}>
+                    {worker.level}
+                  </span>
+                  <div style={{ fontSize: '0.7rem', color: '#64748b', marginTop: 4 }}>
+                    Score: {worker.score.toFixed(2)}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b' }}>CONFIDENCE</div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'JetBrains Mono', color: '#38bdf8' }}>
+                    {Math.round(worker.confidence * 100)}%
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* PREDICTED RISK (P3) */}
+            <div style={{ background: '#090e18', padding: 12, borderRadius: 8, border: '1px solid #334155' }}>
+              <div style={{ fontSize: '0.7rem', color: '#38bdf8', textTransform: 'uppercase', fontFamily: 'JetBrains Mono', marginBottom: 4 }}>
+                PREDICTED RISK (P3 SHORT-HORIZON)
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span className={`badge ${getBadgeClass(worker.prediction?.predicted_risk_level || worker.level)}`} style={{ fontSize: '0.85rem', padding: '4px 8px', border: '1px dashed #38bdf8' }}>
+                    {worker.prediction?.predicted_risk_level || 'EVALUATING'}
+                  </span>
+                  <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: 4 }}>
+                    ETA to Threshold: <strong style={{ color: '#facc15' }}>{worker.prediction?.expected_time_to_threshold_minutes ? `${worker.prediction.expected_time_to_threshold_minutes} min` : 'Stable'}</strong>
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: '0.65rem', color: '#64748b' }}>P(CRITICAL, 60m)</div>
+                  <div style={{ fontSize: '0.9rem', fontWeight: 700, fontFamily: 'JetBrains Mono', color: worker.prediction?.p_critical_60m && worker.prediction.p_critical_60m >= 0.5 ? '#f97316' : '#94a3b8' }}>
+                    {worker.prediction?.p_critical_60m !== null && worker.prediction?.p_critical_60m !== undefined ? `${Math.round(worker.prediction.p_critical_60m * 100)}%` : 'N/A'}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
+
+          {/* Early Warning Banner */}
+          {worker.prediction?.early_warning && (
+            <div style={{ background: 'rgba(249, 115, 22, 0.12)', border: '1px solid rgba(249, 115, 22, 0.4)', padding: 10, borderRadius: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertTriangle size={18} color="#f97316" />
+              <div>
+                <strong style={{ fontSize: '0.8rem', color: '#fed7aa', display: 'block' }}>Early Warning Deterioration Detected</strong>
+                <span style={{ fontSize: '0.75rem', color: '#fdba74' }}>
+                  Model projects risk escalation to {worker.prediction.predicted_risk_level} within ~{worker.prediction.expected_time_to_threshold_minutes ?? 30} minutes based on thermal trend and metabolic accumulation.
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Structured Explanation Summary */}
           {worker.explanation && (
@@ -124,7 +178,7 @@ export const WorkerModal: React.FC<WorkerModalProps> = ({
                   {worker.worker_modifier_score !== undefined ? worker.worker_modifier_score.toFixed(2) : '0.10'}
                 </strong>
                 <span style={{ fontSize: '0.65rem', color: '#94a3b8', display: 'block' }}>
-                  {worker.worker_metadata?.risk_modifier || 'baseline'} (synthetic)
+                  {worker.worker_metadata?.risk_modifier || 'baseline'}
                 </span>
               </div>
 
@@ -137,22 +191,24 @@ export const WorkerModal: React.FC<WorkerModalProps> = ({
             </div>
           </div>
 
-          {/* Explainable Reasons List */}
-          <div>
-            <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', fontFamily: 'JetBrains Mono' }}>
-              Contributing Factor Evidence
-            </span>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
-              {worker.explanation?.reasons?.map((r, idx) => (
-                <div key={idx} style={{ background: '#0c1220', padding: '6px 10px', borderRadius: 4, fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#cbd5e1' }}>{r.message}</span>
-                  <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.65rem', color: '#94a3b8', background: 'rgba(255,255,255,0.06)', padding: '2px 4px', borderRadius: 3 }}>
-                    {r.code}
-                  </span>
-                </div>
-              ))}
+          {/* Model Predictive Feature Contributions */}
+          {worker.prediction?.feature_contributions && Object.keys(worker.prediction.feature_contributions).length > 0 && (
+            <div>
+              <span style={{ fontSize: '0.72rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', fontFamily: 'JetBrains Mono' }}>
+                Predictive Feature Contributions (Logistic Model)
+              </span>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 6, marginTop: 6 }}>
+                {Object.entries(worker.prediction.feature_contributions).map(([feat, delta]) => (
+                  <div key={feat} style={{ background: '#0c1220', padding: '6px 10px', borderRadius: 4, fontSize: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#94a3b8' }}>{feat.replace(/_/g, ' ')}</span>
+                    <strong style={{ fontFamily: 'JetBrains Mono', color: delta > 0 ? '#f97316' : '#10b981' }}>
+                      {delta > 0 ? `+${delta.toFixed(2)}` : delta.toFixed(2)}
+                    </strong>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Guardrail Flags */}
           {worker.guardrail_flags && worker.guardrail_flags.length > 0 && (
