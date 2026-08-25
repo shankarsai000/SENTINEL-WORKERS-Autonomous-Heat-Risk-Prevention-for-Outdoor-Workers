@@ -28,6 +28,7 @@ export interface APIUsageRecord {
   status: 'SUBMITTED' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | 'TIMED_OUT';
   cache_hit: boolean;
   estimated_credit_cost: number | null;
+  credits_used?: number;
   error_code?: string;
 }
 
@@ -67,17 +68,17 @@ export class FortyGuardAdapter {
     const maxLon = Math.round((lon + lonDelta) * 10000) / 10000;
 
     // Closed GeoJSON ring: [SW, NW, NE, SE, SW]
+    const ring: [number, number][] = [
+      [minLon, minLat],
+      [minLon, maxLat],
+      [maxLon, maxLat],
+      [maxLon, minLat],
+      [minLon, minLat], // Closes ring
+    ];
+
     return {
       type: 'Polygon' as const,
-      coordinates: [
-        [
-          [minLon, minLat],
-          [minLon, maxLat],
-          [maxLon, maxLat],
-          [maxLon, minLat],
-          [minLon, minLat], // Closes ring
-        ],
-      ],
+      coordinates: [ring],
     };
   }
 
