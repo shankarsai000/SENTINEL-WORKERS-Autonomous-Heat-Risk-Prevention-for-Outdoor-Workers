@@ -1,0 +1,35 @@
+# Sentinel Workers — Failure-Mode Matrix (Phase P6)
+
+## 1. Overview & Core Failure Principles
+
+The Sentinel Workers reliability framework follows four core axioms:
+1. **Never Hide Failures**: When a component fails, state it clearly. Never fabricate successful observations or fake risk scores.
+2. **Graceful Degradation**: Always fall back to a known-safe operational mode (e.g. cache $\to$ simulation $\to$ baseline contextual risk).
+3. **Audit Immutability**: All failure events, fallback activations, and recoveries must be permanently recorded in the SHA-256 hash chain.
+4. **Safety Invariant Preservation**: A failure in one subsystem must never suppress an active `CRITICAL` risk state or bypass safety guardrails.
+
+---
+
+## 2. Complete Failure-Mode Matrix
+
+| Failure Mode | Detection | System Behavior | Fallback Mechanism | User-Visible State | Audit Event | Recovery Procedure | Verification Test |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **FortyGuard Timeout** ($>10\text{s}$) | `AbortSignal.timeout` caught in `client.ts` | Tripped after timeout limit; aborts fetch | Uses valid cache if fresh; else falls back to offline simulation | `FORTYGUARD: DEGRADED` (using cache/sim) | `PROVIDER_CALL_FAILED` with `TIMEOUT` code | Circuit breaker probes after cooldown; resumes on success | `tests/integration/failure-recovery.test.ts` |
+| **FortyGuard 401/403 (Invalid Key)** | HTTP 401/403 response in `client.ts` | Does NOT retry; immediately flags auth error | Offline simulation engine | `FORTYGUARD: AUTH_ERROR` | `PROVIDER_CALL_FAILED` with `AUTH_ERROR` | Update API key in `.env`; restart server | `tests/unit/fortyguard-client.test.ts` |
+| **FortyGuard 429 (Rate Limit)** | HTTP 429 response in `client.ts` | Exponential backoff with jitter up to max retries | Cached thermal observation / simulation | `FORTYGUARD: RATE_LIMITED` | `PROVIDER_RATE_LIMITED` | Backoff elapsed; request succeeds or circuit breaker pauses | `tests/integration/failure-recovery.test.ts` |
+| **FortyGuard 500 (Internal Error)** | HTTP 5xx response in `client.ts` | Retries up to 2 times; counts toward circuit breaker | Cached observation or simulation fallback | `FORTYGUARD: SERVER_ERROR` | `PROVIDER_CALL_FAILED` with `500` code | Retries after cooldown in half-open state | `tests/integration/failure-recovery.test.ts` |
+| **FortyGuard Malformed Response** | Zod validation error in `schemas.ts` | Rejects invalid JSON; logs schema violation | Cached observation or simulation fallback | `FORTYGUARD: SCHEMA_MISMATCH` | `PROVIDER_SCHEMA_ERROR` | Upstream schema normalized or simulation fallback active | `tests/unit/fortyguard-normalizer.test.ts` |
+| **FortyGuard Down / Network Drop** | Connection refused / DNS failure | Circuit breaker transitions to `OPEN` after 3 fails | Offline simulation engine | `FORTYGUARD: OFFLINE` | `PROVIDER_OFFLINE` | Probing in `HALF_OPEN` state every 30s | `tests/integration/chaos-scenario.test.ts` |
+| **SQLite Locked / Busy** | `SqliteError: database is locked` | Retries via `busy_timeout = 5000ms` pragma | Returns structured 503 error if lock exceeds timeout | `DATABASE: BUSY` error banner | `DATABASE_ERROR` | Lock released by background worker transaction | `tests/integration/failure-recovery.test.ts` |
+| **SQLite Query / Schema Error** | Unhandled SQL exception in `database.ts` | Wraps in transaction rollback; returns 500 | Read-only mode / safe error response | `SYSTEM: ERROR` | `DATABASE_CORRUPT_OR_FAIL` | Automatic schema migration on restart | `tests/integration/api-health.test.ts` |
+| **Prediction Model Failure / Crash** | Exception in `prediction-engine` | Worker prediction isolated; other workers succeed | Falls back to Level 1 physics baseline; current P2 risk preserved | `PREDICTION: DEGRADED` (Current risk active) | `PREDICTION_FAILED` | In-process fallback continues; predictor re-evaluates | `tests/unit/prediction-safety-invariants.test.ts` |
+| **Insufficient Prediction History** ($<3$ samples) | History window check in `feature-builder.ts` | Marks status `INSUFFICIENT_HISTORY`; confidence 0.0 | Preserves P2 current risk without guessing | `PREDICTION: ACCUMULATING_DATA` | `PREDICTION_INSUFFICIENT_HISTORY` | Gathers observations over next 2 ticks; resumes | `tests/unit/prediction-features.test.ts` |
+| **Notification Dispatch Failed (SMS)** | Simulated SMS provider failure | Marks action status `DELIVERY_FAILED`; does NOT mark delivered | Enqueues for retry according to retry budget | `ACTION: DELIVERY_FAILED` | `ACTION_DELIVERY_FAILED` | Retries up to 3 times; escalates if persistent | `tests/unit/action-delivery.test.ts` |
+| **Worker Ack Missing (Timeout)** | Deadline evaluation in `EscalationEvaluator` | Action exceeds `ack_deadline` (e.g. 5m) | Auto-escalates to supervisor `escalations` table | `ACTION: ESCALATED` | `INCIDENT_ESCALATED` | Supervisor acknowledges on worker's behalf | `tests/unit/action-escalation.test.ts` |
+| **Supervisor Ack Missing** | Escalation timer expiry | Escalation persists in priority queue with +120 score | High-priority alerting in Operations Center | `ESCALATION: PENDING` | `ESCALATION_OVERDUE` | Supervisor or site safety officer takes mitigation action | `tests/unit/priority-engine.test.ts` |
+| **WebSocket Disconnect** | `ws.on('close')` event in frontend | Frontend initiates exponential reconnection | REST APIs remain 100% authoritative | `DISCONNECTED — RECONNECTING...` | `WEBSOCKET_DISCONNECTED` | Auto-reconnects and fetches complete state via REST | `tests/integration/chaos-scenario.test.ts` |
+| **Duplicate Action Event** | Duplicate `action_id` or dedupe key | Deduplication service suppresses execution | Existing action status returned | `ACTION: DEDUPLICATED` | `ACTION_DEDUPLICATED` | Deduplicated action discarded safely | `tests/unit/action-dedupe-cooldown.test.ts` |
+| **Out-of-Order State Transition** | State machine validation failure | Rejects invalid jump (e.g. `CLOSED` $\to$ `TRIAGED`) | State remains at current valid state | `TRANSITION_REJECTED` | `INVALID_STATE_TRANSITION_REJECTED` | Client refreshes latest state via REST | `tests/unit/incident-state-machine.test.ts` |
+| **Stale Thermal Data** ($>15\text{m}$) | Observation timestamp freshness check | Reduces confidence score by 30%; flags `STALE` | Inactive discretionary actions; flags supervisor | `DATA: STALE` | `OBSERVATION_STALE` | Fresh observation ingested; confidence restores | `tests/safety/safety-invariants.test.ts` |
+| **Unauthorized Action Mutation** | Role check in middleware (`VIEWER` / `OPERATOR`) | Blocks request with HTTP 403 Forbidden | Action not modified | `403 FORBIDDEN` | `AUTHORIZATION_DENIED` | Supervisor role required to perform mutation | `tests/integration/security-audit.test.ts` |
+| **Malformed API Input** | Zod schema validation in route handler | Rejects request with HTTP 400 Bad Request | State unmutated | `400 BAD REQUEST` | `INPUT_VALIDATION_REJECTED` | Client submits valid schema payload | `tests/integration/security-audit.test.ts` |

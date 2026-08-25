@@ -9,6 +9,7 @@ import { OfflineSimulationEngine } from '@sentinel/simulation';
 import { FortyGuardAdapter } from '@sentinel/fortyguard-provider';
 import { SentinelWebSocketServer } from './services/websocket-server.js';
 import { SentinelOrchestrator } from './services/orchestrator.js';
+import { metrics } from './services/metrics.js';
 
 import { createHealthRouter } from './routes/health.js';
 import { createSitesRouter } from './routes/sites.js';
@@ -21,30 +22,112 @@ import { createFortyGuardRouter } from './routes/fortyguard.js';
 import { createPredictionRouter } from './routes/prediction.js';
 import { createIncidentsRouter } from './routes/incidents.js';
 import { createOperationsRouter } from './routes/operations.js';
+import { createDevRouter } from './routes/dev.js';
 
 dotenv.config();
 
-const logger = pino({
+// Structured logger with strict PII and credential redaction
+export const logger = pino({
   name: 'sentinel-api',
   level: process.env.LOG_LEVEL || 'info',
+  redact: {
+    paths: [
+      'FORTYGUARD_API_KEY',
+      'apiKey',
+      'api_key',
+      'token',
+      'password',
+      'authorization',
+      'recipient_ref',
+      'phone_number',
+      'headers["api-key"]',
+      'headers.authorization',
+    ],
+    censor: '[REDACTED_SECRET]',
+  },
 });
 
 const PORT = parseInt(process.env.PORT || '3001', 10);
+
+// Simple In-Memory Rate Limiter
+class RateLimiter {
+  private requests: Map<string, number[]> = new Map();
+
+  public check(key: string, limit: number, windowMs: number): boolean {
+    const now = Date.now();
+    const timestamps = (this.requests.get(key) || []).filter((t) => now - t < windowMs);
+
+    if (timestamps.length >= limit) {
+      return false;
+    }
+
+    timestamps.push(now);
+    this.requests.set(key, timestamps);
+    return true;
+  }
+}
+
+const rateLimiter = new RateLimiter();
 
 export function createSentinelServer() {
   const app = express();
   const server = http.createServer(app);
 
-  app.use(cors());
-  app.use(express.json());
+  // Strict CORS configuration
+  const allowedOrigins = (
+    process.env.ALLOWED_ORIGINS || 'http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173,http://127.0.0.1:3000'
+  )
+    .split(',')
+    .map((o) => o.trim());
 
-  // Request correlation logger middleware
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+          callback(null, true);
+        } else {
+          callback(new Error(`CORS blocked for origin: ${origin}`));
+        }
+      },
+      credentials: true,
+    })
+  );
+
+  app.use(express.json({ limit: '1mb' }));
+
+  // Request correlation & metrics tracking middleware
   app.use((req, res, next) => {
+    metrics.request_count++;
     const start = Date.now();
-    const correlationId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const correlationId =
+      (req.headers['x-request-id'] as string) ||
+      (req.headers['x-correlation-id'] as string) ||
+      `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
     res.setHeader('x-correlation-id', correlationId);
+    res.setHeader('x-request-id', correlationId);
+    (req as any).correlationId = correlationId;
+
+    // Rate limiting on mutating endpoints in production
+    const isMutating = req.method === 'POST' || req.method === 'PUT' || req.method === 'DELETE';
+    if (isMutating && process.env.NODE_ENV === 'production') {
+      const clientIp = req.ip || req.socket.remoteAddress || 'unknown';
+      const isAllowed = rateLimiter.check(`${clientIp}:${req.path}`, 60, 60000); // 60 mutating reqs/min
+      if (!isAllowed) {
+        return res.status(429).json({
+          error: {
+            code: 'RATE_LIMIT_EXCEEDED',
+            message: 'Too many requests. Please throttle your client.',
+            request_id: correlationId,
+          },
+        });
+      }
+    }
 
     res.on('finish', () => {
+      if (res.statusCode >= 400) {
+        metrics.request_error_count++;
+      }
       logger.info({
         event: 'HTTP_REQUEST',
         correlation_id: correlationId,
@@ -74,7 +157,7 @@ export function createSentinelServer() {
   );
 
   // Mount API routers
-  app.use('/api', createHealthRouter(fortyGuardAdapter));
+  app.use('/api', createHealthRouter(fortyGuardAdapter, db));
   app.use('/api', createSitesRouter(db));
   app.use('/api', createWorkersRouter(db));
   app.use('/api', createRiskRouter(db));
@@ -85,11 +168,25 @@ export function createSentinelServer() {
   app.use('/api', createOperationsRouter(orchestrator, db));
   app.use('/api', createSimulationRouter(orchestrator));
   app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator));
+  app.use('/api', createDevRouter(orchestrator, db));
 
-  // Error handling middleware
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    logger.error({ event: 'UNHANDLED_ERROR', error: err.message, stack: err.stack });
-    res.status(500).json({ error: 'Internal Server Error', message: err.message });
+  // Standardized Error handling middleware
+  app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    const correlationId = (req as any).correlationId || 'unknown';
+    logger.error({
+      event: 'UNHANDLED_ERROR',
+      correlation_id: correlationId,
+      error: err.message,
+      stack: process.env.NODE_ENV !== 'production' ? err.stack : undefined,
+    });
+
+    res.status(err.status || 500).json({
+      error: {
+        code: err.code || 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'An unexpected error occurred.',
+        request_id: correlationId,
+      },
+    });
   });
 
   return { app, server, db, orchestrator, wsServer };

@@ -7,7 +7,7 @@ import { SupervisorRole, IncidentStatus } from '@sentinel/schemas';
 export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: SentinelDatabase): Router {
   const router = Router();
 
-  // Helper for simple role checking
+  // Helper for role checking
   const getRole = (req: Request): SupervisorRole => {
     const roleHeader = req.headers['x-user-role'] as string | undefined;
     const bodyRole = req.body?.user_role as string | undefined;
@@ -20,7 +20,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
   const requireWriteRole = (req: Request, res: Response): boolean => {
     const role = getRole(req);
     if (role === 'VIEWER') {
-      res.status(403).json({ error: 'Access Denied: Read-only VIEWER role cannot perform operational mutations.' });
+      res.status(403).json({
+        error: {
+          code: 'FORBIDDEN_ROLE',
+          message: 'Access Denied: Read-only VIEWER role cannot perform operational mutations.',
+        },
+      });
       return false;
     }
     return true;
@@ -41,7 +46,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incidents,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Failed to retrieve incidents', details: err.message });
+      res.status(500).json({
+        error: {
+          code: 'FETCH_INCIDENTS_FAILED',
+          message: 'Failed to retrieve incidents: ' + err.message,
+        },
+      });
     }
   });
 
@@ -51,7 +61,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
       const incidentId = String(req.params.id);
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       const timeline = db.getIncidentTimeline(incidentId, 50);
@@ -64,7 +79,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         affected_workers: affectedWorkers,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Failed to retrieve incident details', details: err.message });
+      res.status(500).json({
+        error: {
+          code: 'FETCH_INCIDENT_FAILED',
+          message: 'Failed to retrieve incident details: ' + err.message,
+        },
+      });
     }
   });
 
@@ -77,7 +97,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
 
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       const targetStatus: IncidentStatus = incident.status === 'DETECTED' ? 'TRIAGED' : incident.status;
@@ -87,7 +112,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
 
       const updated = db.updateIncidentStatus(incidentId, targetStatus, undefined, note, actor);
       if (!updated) {
-        return res.status(400).json({ error: 'Failed to acknowledge incident' });
+        return res.status(400).json({
+          error: {
+            code: 'ACK_UPDATE_FAILED',
+            message: 'Failed to acknowledge incident.',
+          },
+        });
       }
 
       orchestrator.getAuditService()?.recordAuditEvent('INCIDENT_OPENED', incidentId, {
@@ -104,7 +134,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incident: updated,
       });
     } catch (err: any) {
-      res.status(400).json({ error: 'Incident acknowledgement failed', details: err.message });
+      res.status(400).json({
+        error: {
+          code: 'ACK_FAILED',
+          message: err.message,
+        },
+      });
     }
   });
 
@@ -116,17 +151,32 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
       const { owner, assigned_by = 'Supervisor' } = req.body;
 
       if (!owner || !owner.trim()) {
-        return res.status(400).json({ error: 'Owner identity is required for incident assignment.' });
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_OWNER',
+            message: 'Owner identity is required for incident assignment.',
+          },
+        });
       }
 
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       const updated = db.updateIncidentStatus(incidentId, incident.status, undefined, undefined, owner.trim());
       if (!updated) {
-        return res.status(400).json({ error: 'Failed to assign incident' });
+        return res.status(400).json({
+          error: {
+            code: 'ASSIGN_FAILED',
+            message: 'Failed to assign incident.',
+          },
+        });
       }
 
       orchestrator.getAuditService()?.recordAuditEvent('INCIDENT_OPENED', incidentId, {
@@ -143,7 +193,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incident: updated,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Incident assignment failed', details: err.message });
+      res.status(500).json({
+        error: {
+          code: 'ASSIGN_ERROR',
+          message: err.message,
+        },
+      });
     }
   });
 
@@ -156,14 +211,24 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
 
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       IncidentStateMachine.validateTransition(incidentId, incident.status, 'MITIGATING');
 
       const updated = db.updateIncidentStatus(incidentId, 'MITIGATING', undefined, mitigation_note, actor);
       if (!updated) {
-        return res.status(400).json({ error: 'Failed to update mitigation status' });
+        return res.status(400).json({
+          error: {
+            code: 'MITIGATION_FAILED',
+            message: 'Failed to update mitigation status.',
+          },
+        });
       }
 
       orchestrator.getAuditService()?.recordAuditEvent('INCIDENT_OPENED', incidentId, {
@@ -179,7 +244,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incident: updated,
       });
     } catch (err: any) {
-      res.status(400).json({ error: 'Mitigation trigger failed', details: err.message });
+      res.status(400).json({
+        error: {
+          code: 'MITIGATION_ERROR',
+          message: err.message,
+        },
+      });
     }
   });
 
@@ -191,12 +261,22 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
       const { actor = 'Supervisor', reason, target_severity = 'CRITICAL' } = req.body;
 
       if (!reason || !reason.trim()) {
-        return res.status(400).json({ error: 'Escalation requires a mandatory justification reason.' });
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_REASON',
+            message: 'Escalation requires a mandatory justification reason.',
+          },
+        });
       }
 
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       const updated = {
@@ -222,39 +302,60 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incident: updated,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Incident escalation failed', details: err.message });
+      res.status(500).json({
+        error: {
+          code: 'ESCALATION_ERROR',
+          message: err.message,
+        },
+      });
     }
   });
 
   // 7. POST /api/incidents/:id/resolve
-  router.post('/api/incidents/:id/resolve', (req: Request, res: Response) => {
-    // Forward to handler
-  });
-
   router.post('/incidents/:id/resolve', (req: Request, res: Response) => {
     try {
       const role = getRole(req);
       if (role !== 'SUPERVISOR') {
-        return res.status(403).json({ error: 'Access Denied: Only SUPERVISOR role can resolve incidents.' });
+        return res.status(403).json({
+          error: {
+            code: 'FORBIDDEN_ROLE',
+            message: 'Access Denied: Only SUPERVISOR role can resolve incidents.',
+          },
+        });
       }
 
       const incidentId = String(req.params.id);
       const { actor = 'Supervisor', resolution, note } = req.body;
 
       if (!resolution || !resolution.trim()) {
-        return res.status(400).json({ error: 'Resolution explanation is required to resolve an incident.' });
+        return res.status(400).json({
+          error: {
+            code: 'INVALID_RESOLUTION',
+            message: 'Resolution explanation is required to resolve an incident.',
+          },
+        });
       }
 
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       IncidentStateMachine.validateTransition(incidentId, incident.status, 'RESOLVED');
 
       const updated = db.updateIncidentStatus(incidentId, 'RESOLVED', resolution.trim(), note, actor);
       if (!updated) {
-        return res.status(400).json({ error: 'Failed to resolve incident' });
+        return res.status(400).json({
+          error: {
+            code: 'RESOLVE_UPDATE_FAILED',
+            message: 'Failed to resolve incident.',
+          },
+        });
       }
 
       orchestrator.getAuditService()?.recordAuditEvent('INCIDENT_RESOLVED', incidentId, {
@@ -271,7 +372,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         incident: updated,
       });
     } catch (err: any) {
-      res.status(400).json({ error: 'Incident resolution failed', details: err.message });
+      res.status(400).json({
+        error: {
+          code: 'RESOLVE_ERROR',
+          message: err.message,
+        },
+      });
     }
   });
 
@@ -281,7 +387,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
       const incidentId = String(req.params.id);
       const incident = db.getIncidentById(incidentId);
       if (!incident) {
-        return res.status(404).json({ error: `Incident '${incidentId}' not found.` });
+        return res.status(404).json({
+          error: {
+            code: 'INCIDENT_NOT_FOUND',
+            message: `Incident '${incidentId}' not found.`,
+          },
+        });
       }
 
       const auditEvents = orchestrator
@@ -295,7 +406,12 @@ export function createIncidentsRouter(orchestrator: SentinelOrchestrator, db: Se
         audit_events: auditEvents,
       });
     } catch (err: any) {
-      res.status(500).json({ error: 'Failed to retrieve incident audit trail', details: err.message });
+      res.status(500).json({
+        error: {
+          code: 'AUDIT_FETCH_ERROR',
+          message: err.message,
+        },
+      });
     }
   });
 

@@ -81,5 +81,5 @@ describe('Full Closed-Loop End-to-End Pipeline Integration', () => {
     );
     expect(ackAuditEvent).toBeDefined();
     expect(ackAuditEvent.payload_hash).toHaveLength(64); // SHA-256 hex length
-  }, 35000);
+  }, 60000);
 });

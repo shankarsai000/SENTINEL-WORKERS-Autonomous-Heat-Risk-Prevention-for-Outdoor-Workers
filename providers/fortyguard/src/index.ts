@@ -6,3 +6,4 @@ export * from './cache.js';
 export * from './normalizer.js';
 export * from './capabilities.js';
 export * from './adapter.js';
+export * from './circuit-breaker.js';
