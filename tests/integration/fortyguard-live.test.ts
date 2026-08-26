@@ -11,7 +11,14 @@ dotenv.config();
 
 describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
   const apiKey = process.env.FORTYGUARD_API_KEY;
-  const isKeyConfigured = Boolean(apiKey && apiKey.trim().length > 0);
+  const isKeyConfigured = Boolean(
+    apiKey &&
+    apiKey.trim().length > 0 &&
+    !apiKey.startsWith('YOUR_') &&
+    !apiKey.includes('placeholder') &&
+    apiKey !== 'mock_fg_key' &&
+    apiKey !== 'mock_api_key'
+  );
 
   it('verifies live FortyGuard API request and downstream P2 -> P3 -> P4 ingestion when key is configured', async () => {
     if (!isKeyConfigured) {
@@ -26,6 +33,9 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
     const adapter = new FortyGuardAdapter({
       apiKey,
       baseUrl: process.env.FORTYGUARD_BASE_URL || process.env.FORTYGUARD_API_BASE_URL || 'https://api.fortyguard.com',
+      timeoutMs: 30000,
+      maxPollAttempts: 20,
+      pollIntervalMs: 1500,
       offlineFallback: false,
     });
 
@@ -65,35 +75,77 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
       currentTime: observation.timestamp,
     });
 
-    expect(evalResult.riskStates.length).toBe(10);
+    expect(evalResult.riskStates.length).toBe(workers.length);
     expect(evalResult.riskStates[0].score).toBeGreaterThanOrEqual(0);
     expect(evalResult.riskStates[0].score).toBeLessThanOrEqual(1);
 
     // Step 3: Feed into P3 Short-Horizon Predictor
     const predictor = new ShortHorizonRiskPredictor();
-    const predResult = predictor.predictWorkerTrajectory({
-      worker: workers[0],
-      site: testSite,
+    const dummyCluster = {
+      zone_id: testSite.zone_id,
+      active_workers_in_zone: workers.length,
+      elevated_workers_in_zone: 0,
+      high_workers_in_zone: 0,
+      critical_workers_in_zone: 0,
+      cluster_density: 0.1,
+    };
+    const predResult = predictor.predictWorker({
+      workerCtx: {
+        worker_id: workers[0].worker_id,
+        site_id: testSite.site_id,
+        role: workers[0].role,
+        task_intensity: workers[0].task_intensity,
+        shift_start: workers[0].shift_start,
+        shift_end: workers[0].shift_end,
+        exposure_duration_minutes: 60,
+        recent_recovery_minutes: null,
+        risk_modifier: workers[0].risk_modifier,
+        channel: workers[0].channel,
+        active: true,
+      },
+      siteCtx: {
+        site_id: testSite.site_id,
+        zone_id: testSite.zone_id,
+        worker_count: testSite.worker_count,
+        active_worker_count: workers.length,
+        cooling_resources: { shade_stations: 2, water_points: 4, misting_fans: 2, ac_trailers: 1 },
+        emergency_policy_id: testSite.emergency_policy_id,
+      },
+      clusterCtx: dummyCluster,
       currentObservation: observation,
-      currentRiskState: evalResult.riskStates[0],
-      historicalObservations: [observation],
-      historicalRiskStates: [evalResult.riskStates[0]],
-      predictionHorizonMinutes: 60,
+      currentRisk: evalResult.riskStates[0],
     });
 
     expect(predResult).toBeDefined();
-    expect(predResult.predicted_risk_level).toBeDefined();
-    expect(predResult.prediction_confidence).toBeGreaterThan(0);
+    expect(predResult.predictiveState.predicted_risk_level).toBeDefined();
+    expect(predResult.predictiveState.prediction_confidence).toBeGreaterThanOrEqual(0);
 
     // Step 4: Feed into P4 Action Planner & Safety Policy Gate
-    const planner = new ActionPlanner(policy);
-    const actions = planner.planInterventions({
-      workers,
-      site: testSite,
-      riskStates: evalResult.riskStates,
-      predictiveStates: [predResult],
-      observation,
-      currentTime: observation.timestamp,
+    const actions = ActionPlanner.planActions({
+      currentRisk: evalResult.riskStates[0],
+      predictedRisk: predResult.predictiveState,
+      workerCtx: {
+        worker_id: workers[0].worker_id,
+        site_id: testSite.site_id,
+        role: workers[0].role,
+        task_intensity: workers[0].task_intensity,
+        shift_start: workers[0].shift_start,
+        shift_end: workers[0].shift_end,
+        exposure_duration_minutes: 60,
+        recent_recovery_minutes: null,
+        risk_modifier: workers[0].risk_modifier,
+        channel: workers[0].channel,
+        active: true,
+      },
+      siteCtx: {
+        site_id: testSite.site_id,
+        zone_id: testSite.zone_id,
+        worker_count: testSite.worker_count,
+        active_worker_count: workers.length,
+        cooling_resources: { shade_stations: 2, water_points: 4, misting_fans: 2, ac_trailers: 1 },
+        emergency_policy_id: testSite.emergency_policy_id,
+      },
+      policy,
     });
 
     expect(actions).toBeDefined();

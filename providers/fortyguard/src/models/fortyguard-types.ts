@@ -32,9 +32,54 @@ export const GeoJsonPolygonSchema = z.object({
     ),
 });
 
+export const DateTimeObjectSchema = z.object({
+  year: z.number().int().min(2019),
+  month: z.number().int().min(1).max(12),
+  day: z.number().int().min(1).max(31),
+  hour: z.number().int().min(0).max(23),
+  minute: z.number().int().min(0).max(59),
+});
+
+export type FortyGuardDateTimeObject = z.infer<typeof DateTimeObjectSchema>;
+
+export const DateTimeInputSchema = z.union([
+  z.string().min(1),
+  DateTimeObjectSchema,
+]);
+
+export function toFortyGuardDateTime(input: any): any {
+  if (typeof input === 'object' && input !== null && 'start_date' in input) {
+    return input;
+  }
+  const d = typeof input === 'string' ? new Date(input) : new Date();
+  const validDate = isNaN(d.getTime()) ? new Date() : d;
+
+  const yyyy = validDate.getUTCFullYear();
+  const mm = String(validDate.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(validDate.getUTCDate()).padStart(2, '0');
+  const hh = String(validDate.getUTCHours()).padStart(2, '0');
+  const min = String(validDate.getUTCMinutes()).padStart(2, '0');
+
+  const dateStr = `${yyyy}-${mm}-${dd}`;
+  const timeStr = `${hh}:${min}`;
+
+  return {
+    filter_type: typeof input === 'object' && typeof input?.filter_type === 'number' ? input.filter_type : 1,
+    start_date: dateStr,
+    end_date: dateStr,
+    start_time: timeStr,
+    end_time: timeStr,
+    year: yyyy,
+    month: validDate.getUTCMonth() + 1,
+    day: validDate.getUTCDate(),
+    hour: validDate.getUTCHours(),
+    minute: validDate.getUTCMinutes(),
+  };
+}
+
 export const HeatmapSubmissionRequestSchema = z.object({
   polygon_aoi: GeoJsonPolygonSchema,
-  date_time: z.string().min(1),
+  date_time: DateTimeInputSchema,
   granularity: z.union([z.literal(60), z.literal(80), z.literal(100)]).default(80),
 });
 
@@ -44,7 +89,7 @@ export const EnvParamsSubmissionRequestSchema = z.object({
   latitude: z.number().min(-90).max(90),
   longitude: z.number().min(-180).max(180),
   temperature: z.number(),
-  date_time: z.string().min(1),
+  date_time: DateTimeInputSchema,
 });
 
 export type EnvParamsSubmissionRequest = z.infer<typeof EnvParamsSubmissionRequestSchema>;

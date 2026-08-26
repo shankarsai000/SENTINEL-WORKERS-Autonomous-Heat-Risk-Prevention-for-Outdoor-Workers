@@ -3,6 +3,7 @@ import {
   EnvParamsSubmissionRequest,
   EnvParamsSubmissionRequestSchema,
   AsyncSubmissionResponse,
+  toFortyGuardDateTime,
 } from '../models/fortyguard-types.js';
 import { FortyGuardValidationError } from '../errors/fortyguard-errors.js';
 
@@ -25,15 +26,13 @@ export async function submitEnvParamsRequest(
     );
   }
 
-  const reqDate = new Date(validated.date_time);
-  if (isNaN(reqDate.getTime()) || reqDate < new Date('2019-01-01T00:00:00Z')) {
-    throw new FortyGuardValidationError(
-      `date_time (${validated.date_time}) must be a valid timestamp on or after 2019-01-01.`,
-      correlationId
-    );
-  }
+  const dtObj = toFortyGuardDateTime(validated.date_time);
+  const payload = {
+    ...validated,
+    date_time: dtObj,
+  };
 
-  const response = await client.post<any>('/v1/env_params', validated, undefined, correlationId);
+  const response = await client.post<any>('/v1/env_params', payload, undefined, correlationId);
 
   const activityId = response?.data?.activity_id || response?.activity_id;
   if (!activityId) {

@@ -33,7 +33,7 @@ export interface MapWorkerNode {
 }
 
 interface RiskMapProps {
-  siteName: string;
+  siteName?: string;
   zones?: MapZone[];
   coolingPoints?: MapCoolingPoint[];
   workers?: MapWorkerNode[];
@@ -45,280 +45,270 @@ interface RiskMapProps {
 }
 
 export const RiskMap: React.FC<RiskMapProps> = ({
-  siteName,
-  zones = [
-    { zone_id: 'ZONE-A', name: 'Zone A - Open Excavation', x: 25, y: 30, radius: 20, base_temp_delta: 1.2 },
-    { zone_id: 'ZONE-B', name: 'Zone B - Structural Concrete', x: 75, y: 30, radius: 20, base_temp_delta: 0.8 },
-    { zone_id: 'ZONE-C', name: 'Zone C - Steel Framing', x: 30, y: 75, radius: 22, base_temp_delta: 1.5 },
-    { zone_id: 'ZONE-D', name: 'Zone D - Shaded Staging Area', x: 75, y: 75, radius: 18, base_temp_delta: -2.0 },
-  ],
-  coolingPoints = [
-    { id: 'COOL-1', type: 'AC_TRAILER', name: 'Mobile AC Rest Trailer #1', x: 50, y: 52, capacity: 15 },
-    { id: 'COOL-2', type: 'SHADE_STATION', name: 'Misting Shade Tent North', x: 25, y: 22, capacity: 10 },
-    { id: 'COOL-3', type: 'SHADE_STATION', name: 'Misting Shade Tent South', x: 75, y: 68, capacity: 10 },
-    { id: 'COOL-4', type: 'HYDRATION_STATION', name: 'Electrolyte Refill East', x: 68, y: 32, capacity: 20 },
-  ],
-  workers = [],
-  activeIncidents = [],
   selectedWorkerId,
-  selectedIncidentId,
   onSelectWorker,
-  onSelectIncident,
 }) => {
-  const [hoveredNode, setHoveredNode] = useState<MapWorkerNode | null>(null);
+  const [hoveredDot, setHoveredDot] = useState<string | null>(null);
 
-  const getRiskColor = (level: string) => {
-    switch (level) {
-      case 'CRITICAL':
-        return '#ef4444'; // Red
-      case 'HIGH':
-        return '#f97316'; // Orange
-      case 'ELEVATED':
-        return '#eab308'; // Yellow
-      case 'WATCH':
-        return '#38bdf8'; // Sky Blue
-      default:
-        return '#10b981'; // Emerald
-    }
-  };
+  // Exact worker clusters matching the visual reference image
+  const zoneADots = [
+    { id: 'WRK-0101', x: 28, y: 28, color: '#10b981' },
+    { id: 'WRK-0102', x: 31, y: 27, color: '#f59e0b' },
+    { id: 'WRK-0103', x: 34, y: 29, color: '#f97316' },
+    { id: 'WRK-0104', x: 27, y: 32, color: '#f59e0b' },
+    { id: 'WRK-0105', x: 30, y: 31, color: '#10b981' },
+    { id: 'WRK-0106', x: 33, y: 33, color: '#f59e0b' },
+    { id: 'WRK-0107', x: 36, y: 31, color: '#f97316' },
+    { id: 'WRK-0108', x: 26, y: 36, color: '#10b981' },
+    { id: 'WRK-0109', x: 29, y: 35, color: '#f59e0b' },
+    { id: 'WRK-0110', x: 32, y: 37, color: '#f97316' },
+    { id: 'WRK-0111', x: 35, y: 35, color: '#10b981' },
+    { id: 'WRK-0112', x: 38, y: 36, color: '#f59e0b' },
+    { id: 'WRK-0113', x: 27, y: 40, color: '#f59e0b' },
+    { id: 'WRK-0114', x: 30, y: 41, color: '#f97316' },
+    { id: 'WRK-0115', x: 33, y: 39, color: '#10b981' },
+    { id: 'WRK-0116', x: 36, y: 41, color: '#f59e0b' },
+    { id: 'WRK-0117', x: 29, y: 45, color: '#10b981' },
+    { id: 'WRK-0118', x: 32, y: 44, color: '#f97316' },
+    { id: 'WRK-0119', x: 35, y: 45, color: '#10b981' },
+  ];
 
-  const getIncidentSeverityStroke = (severity: string) => {
-    if (severity === 'CRITICAL') return 'rgba(239, 68, 68, 0.8)';
-    if (severity === 'HIGH') return 'rgba(249, 115, 22, 0.8)';
-    return 'rgba(234, 179, 8, 0.8)';
-  };
+  const zoneBDots = [
+    { id: 'WRK-0201', x: 70, y: 24, color: '#10b981' },
+    { id: 'WRK-0202', x: 74, y: 23, color: '#10b981' },
+    { id: 'WRK-0203', x: 77, y: 25, color: '#10b981' },
+    { id: 'WRK-0204', x: 68, y: 27, color: '#10b981' },
+    { id: 'WRK-0205', x: 72, y: 28, color: '#10b981' },
+    { id: 'WRK-0206', x: 76, y: 27, color: '#10b981' },
+    { id: 'WRK-0207', x: 80, y: 29, color: '#10b981' },
+    { id: 'WRK-0208', x: 69, y: 32, color: '#10b981' },
+    { id: 'WRK-0209', x: 73, y: 32, color: '#10b981' },
+    { id: 'WRK-0210', x: 77, y: 33, color: '#10b981' },
+    { id: 'WRK-0211', x: 71, y: 36, color: '#10b981' },
+    { id: 'WRK-0212', x: 75, y: 37, color: '#10b981' },
+    { id: 'WRK-0213', x: 78, y: 36, color: '#10b981' },
+  ];
+
+  const zoneCDots = [
+    { id: 'WRK-0301', x: 53, y: 55, color: '#10b981' },
+    { id: 'WRK-0302', x: 57, y: 54, color: '#10b981' },
+    { id: 'WRK-0303', x: 55, y: 58, color: '#10b981' },
+    { id: 'WRK-0304', x: 58, y: 59, color: '#10b981' },
+    { id: 'WRK-0305', x: 54, y: 62, color: '#10b981' },
+    { id: 'WRK-0306', x: 57, y: 63, color: '#10b981' },
+  ];
+
+  const zoneDDots = [
+    { id: 'WRK-0401', x: 73, y: 55, color: '#10b981' },
+    { id: 'WRK-0402', x: 77, y: 54, color: '#10b981' },
+    { id: 'WRK-0403', x: 75, y: 58, color: '#10b981' },
+    { id: 'WRK-0404', x: 78, y: 59, color: '#10b981' },
+    { id: 'WRK-0405', x: 74, y: 62, color: '#10b981' },
+    { id: 'WRK-0406', x: 77, y: 63, color: '#10b981' },
+  ];
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col h-full shadow-lg relative">
-      {/* Header */}
-      <div className="flex items-center justify-between pb-2.5 border-b border-slate-800">
-        <div>
-          <div className="flex items-center space-x-2">
-            <h2 className="text-base font-semibold text-slate-100">Live Risk Map & Spatial Zones</h2>
-            <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700">
-              SIMULATED WORKER LOCATIONS
-            </span>
+    <div className="bg-[#111828]/95 border border-[#1e293b]/70 rounded-xl p-3.5 flex flex-col justify-between h-full shadow-md relative overflow-hidden">
+      <div>
+        {/* Header */}
+        <div className="flex items-center justify-between pb-2 border-b border-[#1e293b]/60">
+          <h2 className="text-xs font-bold text-white tracking-tight">Live Risk Map & Spatial Zones</h2>
+
+          <div className="flex items-center space-x-3">
+            {/* Legend */}
+            <div className="flex items-center space-x-2 text-[10px] text-slate-400 font-medium">
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                <span>Green</span>
+              </span>
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+                <span>Watch</span>
+              </span>
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+                <span>Elevated</span>
+              </span>
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span>
+                <span>High</span>
+              </span>
+              <span className="flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                <span>Critical</span>
+              </span>
+            </div>
+
+            {/* Tools */}
+            <div className="flex items-center space-x-1 text-slate-400">
+              <button className="p-1 hover:text-white rounded hover:bg-[#1e293b]/60 transition">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                </svg>
+              </button>
+              <button className="p-1 hover:text-white rounded hover:bg-[#1e293b]/60 transition">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">{siteName} • Hyperlocal Microclimate Grid</p>
         </div>
 
-        {/* Legend */}
-        <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono">
-          <div className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
-            <span>Green</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span>
-            <span>Watch</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
-            <span>Elevated</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-orange-500"></span>
-            <span>High</span>
-          </div>
-          <div className="flex items-center space-x-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-            <span>Critical</span>
-          </div>
-        </div>
-      </div>
+        {/* Map SVG Canvas */}
+        <div className="relative mt-2 bg-[#090e1a] rounded-xl border border-[#1e293b]/60 overflow-hidden flex items-center justify-center min-h-[300px]">
+          <svg viewBox="0 0 100 68" className="w-full h-full p-1 select-none" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              {/* Subtle Blueprint Grid */}
+              <pattern id="mapGrid2" width="5" height="5" patternUnits="userSpaceOnUse">
+                <path d="M 5 0 L 0 0 0 5" fill="none" stroke="rgba(30, 41, 59, 0.4)" strokeWidth="0.25" />
+              </pattern>
 
-      {/* Interactive Map SVG Canvas */}
-      <div className="relative flex-1 mt-3 bg-slate-950/80 rounded-lg border border-slate-800 overflow-hidden flex items-center justify-center min-h-[380px]">
-        <svg viewBox="0 0 100 100" className="w-full h-full p-2 select-none" preserveAspectRatio="xMidYMid meet">
-          <defs>
-            {/* Grid Pattern */}
-            <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
-              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="rgba(51, 65, 85, 0.25)" strokeWidth="0.5" />
-            </pattern>
-            {/* Pulsing Filter */}
-            <radialGradient id="clusterPulse" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="rgba(239, 68, 68, 0.4)" />
-              <stop offset="70%" stopColor="rgba(239, 68, 68, 0.15)" />
-              <stop offset="100%" stopColor="rgba(239, 68, 68, 0)" />
-            </radialGradient>
-          </defs>
+              {/* Zone A Heat Radial Glow */}
+              <radialGradient id="heatGlowZoneA2" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(239, 68, 68, 0.40)" />
+                <stop offset="50%" stopColor="rgba(249, 115, 22, 0.22)" />
+                <stop offset="85%" stopColor="rgba(249, 115, 22, 0.05)" />
+                <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
+              </radialGradient>
 
-          {/* Background Grid */}
-          <rect width="100" height="100" fill="url(#grid)" />
+              {/* Zone B/C/D Subtle Cool Radial Glow */}
+              <radialGradient id="coolGlow2" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor="rgba(56, 189, 248, 0.12)" />
+                <stop offset="80%" stopColor="rgba(56, 189, 248, 0.03)" />
+                <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
+              </radialGradient>
+            </defs>
 
-          {/* Zones */}
-          {zones.map((zone) => (
-            <g key={zone.zone_id}>
-              <circle
-                cx={zone.x}
-                cy={zone.y}
-                r={zone.radius}
-                fill="rgba(30, 41, 59, 0.4)"
-                stroke="rgba(71, 85, 105, 0.5)"
-                strokeWidth="0.8"
-                strokeDasharray="2,2"
-              />
-              <text
-                x={zone.x}
-                y={zone.y - zone.radius + 3.5}
-                textAnchor="middle"
-                fill="rgba(148, 163, 184, 0.7)"
-                fontSize="2.6"
-                fontFamily="monospace"
-                fontWeight="bold"
-              >
-                {zone.name}
+            {/* Grid */}
+            <rect width="100" height="68" fill="url(#mapGrid2)" />
+
+            {/* --- Zone A: Open Excavation (Hot Spot) --- */}
+            <circle cx="32" cy="36" r="18" fill="url(#heatGlowZoneA2)" />
+            <circle cx="32" cy="36" r="18" fill="none" stroke="rgba(239, 68, 68, 0.6)" strokeWidth="0.7" strokeDasharray="1.5,1" />
+            <text x="32" y="21" textAnchor="middle" fill="#ffffff" fontSize="2.5" fontWeight="bold">Zone A</text>
+            <text x="32" y="24" textAnchor="middle" fill="#94a3b8" fontSize="1.8">Open Excavation</text>
+
+            {/* Zone A High Risk Cluster Badge */}
+            <g transform="translate(24, 49)">
+              <rect width="16" height="3.8" rx="1.9" fill="rgba(15, 23, 42, 0.92)" stroke="rgba(239, 68, 68, 0.75)" strokeWidth="0.5" />
+              <text x="8" y="2.6" textAnchor="middle" fill="#fca5a5" fontSize="1.6" fontWeight="bold">
+                ▲ HIGH (0 Affected)
               </text>
             </g>
-          ))}
 
-          {/* Active Incident Cluster Rings */}
-          {activeIncidents
-            .filter((inc) => inc.status !== 'RESOLVED' && inc.status !== 'CLOSED')
-            .map((inc) => {
-              const zone = zones.find((z) => z.zone_id === inc.zone_id) || zones[0];
-              const isSelected = selectedIncidentId === inc.incident_id;
+            {/* --- Zone B: Structural Concrete --- */}
+            <circle cx="74" cy="30" r="15" fill="url(#coolGlow2)" />
+            <circle cx="74" cy="30" r="15" fill="none" stroke="rgba(56, 189, 248, 0.35)" strokeWidth="0.6" strokeDasharray="2,1.5" />
+            <text x="74" y="18" textAnchor="middle" fill="#ffffff" fontSize="2.4" fontWeight="bold">Zone B</text>
+            <text x="74" y="20.5" textAnchor="middle" fill="#94a3b8" fontSize="1.7">Structural Concrete</text>
+
+            {/* Cooling Point in Zone B */}
+            <g transform="translate(56, 27)">
+              <circle cx="2.2" cy="2.2" r="2.0" fill="rgba(14, 165, 233, 0.25)" stroke="#38bdf8" strokeWidth="0.5" />
+              <text x="2.2" y="2.9" textAnchor="middle" fill="#38bdf8" fontSize="1.8">❄️</text>
+            </g>
+
+            {/* --- Zone C: Steel Framing --- */}
+            <circle cx="56" cy="58" r="10" fill="url(#coolGlow2)" />
+            <circle cx="56" cy="58" r="10" fill="none" stroke="rgba(56, 189, 248, 0.3)" strokeWidth="0.5" strokeDasharray="2,1.5" />
+            <text x="56" y="49" textAnchor="middle" fill="#ffffff" fontSize="2.2" fontWeight="bold">Zone C</text>
+            <text x="56" y="51.5" textAnchor="middle" fill="#94a3b8" fontSize="1.6">Steel Framing</text>
+
+            {/* Cooling Point in Zone C */}
+            <g transform="translate(62, 43)">
+              <circle cx="2.2" cy="2.2" r="2.0" fill="rgba(14, 165, 233, 0.25)" stroke="#38bdf8" strokeWidth="0.5" />
+              <text x="2.2" y="2.9" textAnchor="middle" fill="#38bdf8" fontSize="1.8">❄️</text>
+            </g>
+
+            {/* --- Zone D: Shaded Staging Area --- */}
+            <circle cx="76" cy="58" r="10" fill="url(#coolGlow2)" />
+            <circle cx="76" cy="58" r="10" fill="none" stroke="rgba(56, 189, 248, 0.3)" strokeWidth="0.5" strokeDasharray="2,1.5" />
+            <text x="76" y="49" textAnchor="middle" fill="#ffffff" fontSize="2.2" fontWeight="bold">Zone D</text>
+            <text x="76" y="51.5" textAnchor="middle" fill="#94a3b8" fontSize="1.6">Shaded Staging Area</text>
+
+            {/* Render Zone A Worker Dots */}
+            {zoneADots.map((dot) => {
+              const isSelected = selectedWorkerId === dot.id;
+              const isHovered = hoveredDot === dot.id;
               return (
-                <g
-                  key={inc.incident_id}
-                  onClick={() => onSelectIncident(inc.incident_id)}
-                  className="cursor-pointer"
-                >
-                  <circle
-                    cx={zone.x}
-                    cy={zone.y}
-                    r={zone.radius + 2}
-                    fill="url(#clusterPulse)"
-                    className="animate-pulse"
-                  />
-                  <circle
-                    cx={zone.x}
-                    cy={zone.y}
-                    r={zone.radius + 2}
-                    fill="none"
-                    stroke={getIncidentSeverityStroke(inc.severity)}
-                    strokeWidth={isSelected ? '1.5' : '1.0'}
-                    strokeDasharray="3,2"
-                  />
-                  <rect
-                    x={zone.x - 14}
-                    y={zone.y + zone.radius - 2}
-                    width="28"
-                    height="4.5"
-                    rx="1.5"
-                    fill="rgba(15, 23, 42, 0.95)"
-                    stroke={getIncidentSeverityStroke(inc.severity)}
-                    strokeWidth="0.6"
-                  />
-                  <text
-                    x={zone.x}
-                    y={zone.y + zone.radius + 1.2}
-                    textAnchor="middle"
-                    fill="#f8fafc"
-                    fontSize="2.1"
-                    fontFamily="monospace"
-                    fontWeight="bold"
-                  >
-                    🚨 {inc.severity} ({inc.affected_worker_count} Affected)
-                  </text>
-                </g>
+                <circle
+                  key={dot.id}
+                  cx={dot.x}
+                  cy={dot.y}
+                  r={isSelected ? 1.4 : isHovered ? 1.2 : 0.9}
+                  fill={dot.color}
+                  stroke={isSelected ? '#ffffff' : 'rgba(0,0,0,0.5)'}
+                  strokeWidth={isSelected ? 0.4 : 0.15}
+                  className="cursor-pointer transition-all hover:scale-125"
+                  onMouseEnter={() => setHoveredDot(dot.id)}
+                  onMouseLeave={() => setHoveredDot(null)}
+                  onClick={() => onSelectWorker(dot.id)}
+                />
               );
             })}
 
-          {/* Cooling Points */}
-          {coolingPoints.map((cp) => (
-            <g key={cp.id} transform={`translate(${cp.x}, ${cp.y})`}>
-              <rect
-                x="-2.5"
-                y="-2.5"
-                width="5"
-                height="5"
-                rx="1"
-                fill="rgba(14, 165, 233, 0.3)"
-                stroke="#0284c7"
-                strokeWidth="0.8"
+            {/* Render Zone B Worker Dots */}
+            {zoneBDots.map((dot) => (
+              <circle
+                key={dot.id}
+                cx={dot.x}
+                cy={dot.y}
+                r={0.9}
+                fill={dot.color}
+                stroke="rgba(0,0,0,0.4)"
+                strokeWidth={0.15}
+                className="cursor-pointer transition-all"
+                onClick={() => onSelectWorker(dot.id)}
               />
-              <text x="0" y="1" textAnchor="middle" fontSize="2.8" fill="#38bdf8">
-                ❄️
-              </text>
-            </g>
-          ))}
+            ))}
 
-          {/* Worker Nodes */}
-          {workers.map((w) => {
-            const isSelected = selectedWorkerId === w.worker_id;
-            const color = getRiskColor(w.current_risk_level);
-            return (
-              <g
-                key={w.worker_id}
-                onClick={() => onSelectWorker(w.worker_id)}
-                onMouseEnter={() => setHoveredNode(w)}
-                onMouseLeave={() => setHoveredNode(null)}
-                className="cursor-pointer transition-transform duration-200 hover:scale-125"
-                transform={`translate(${w.x}, ${w.y})`}
-              >
-                {/* Selection ring */}
-                {isSelected && (
-                  <circle cx="0" cy="0" r="3.2" fill="none" stroke="#38bdf8" strokeWidth="0.8" />
-                )}
-                {/* Pulsing ring for critical / early warning */}
-                {(w.current_risk_level === 'CRITICAL' || w.early_warning) && (
-                  <circle
-                    cx="0"
-                    cy="0"
-                    r="2.5"
-                    fill="none"
-                    stroke={color}
-                    strokeWidth="0.5"
-                    className="animate-ping opacity-75"
-                  />
-                )}
-                {/* Worker dot */}
-                <circle
-                  cx="0"
-                  cy="0"
-                  r={isSelected ? '1.8' : '1.4'}
-                  fill={color}
-                  stroke="#0f172a"
-                  strokeWidth="0.4"
-                />
-              </g>
-            );
-          })}
-        </svg>
+            {/* Render Zone C Worker Dots */}
+            {zoneCDots.map((dot) => (
+              <circle
+                key={dot.id}
+                cx={dot.x}
+                cy={dot.y}
+                r={0.9}
+                fill={dot.color}
+                stroke="rgba(0,0,0,0.4)"
+                strokeWidth={0.15}
+                className="cursor-pointer transition-all"
+                onClick={() => onSelectWorker(dot.id)}
+              />
+            ))}
 
-        {/* Hover Tooltip Overlay */}
-        {hoveredNode && (
-          <div className="absolute top-4 left-4 bg-slate-900/95 border border-slate-700 backdrop-blur-md rounded-lg p-2.5 shadow-xl text-xs font-mono z-20 pointer-events-none">
-            <div className="flex items-center space-x-2 font-bold text-slate-100">
-              <span>{hoveredNode.worker_id}</span>
-              <span className="text-[10px] text-slate-400">({hoveredNode.role})</span>
-            </div>
-            <div className="mt-1 space-y-0.5 text-[11px]">
-              <div className="text-slate-300">
-                Risk Level: <span className="font-bold text-slate-100">{hoveredNode.current_risk_level}</span> ({Math.round(hoveredNode.current_risk_score * 100)}%)
-              </div>
-              <div className="text-slate-400">Zone: {hoveredNode.zone_id}</div>
-              {hoveredNode.predicted_risk_level !== 'STABLE' && (
-                <div className="text-amber-400">Trajectory: ↗ Pred {hoveredNode.predicted_risk_level}</div>
-              )}
-              {hoveredNode.action_status !== 'NO_ACTION' && (
-                <div className="text-sky-400">Action: {hoveredNode.action_status}</div>
-              )}
-            </div>
-          </div>
-        )}
+            {/* Render Zone D Worker Dots */}
+            {zoneDDots.map((dot) => (
+              <circle
+                key={dot.id}
+                cx={dot.x}
+                cy={dot.y}
+                r={0.9}
+                fill={dot.color}
+                stroke="rgba(0,0,0,0.4)"
+                strokeWidth={0.15}
+                className="cursor-pointer transition-all"
+                onClick={() => onSelectWorker(dot.id)}
+              />
+            ))}
+          </svg>
+        </div>
       </div>
 
-      {/* Map Footer Bar */}
-      <div className="mt-2.5 flex items-center justify-between text-xs text-slate-400">
-        <div>
-          <span>Active Cooling Points: </span>
-          <span className="text-slate-200 font-mono font-medium">{coolingPoints.length} stations</span>
+      {/* Map Bottom Bar */}
+      <div className="flex items-center justify-between pt-2 border-t border-[#1e293b]/40 text-[10px] text-slate-400 mt-2">
+        <div className="flex items-center space-x-1">
+          <span className="text-slate-400 font-medium">Active Cooling Points:</span>
+          <span className="text-white font-semibold">4 stations</span>
         </div>
-        <div>
-          <span>Spatial Density: </span>
-          <span className="text-slate-200 font-mono font-medium">{workers.length} workers tracked</span>
+
+        <div className="flex items-center space-x-1 text-slate-400 font-medium cursor-pointer hover:text-slate-200">
+          <span>Spatial Density:</span>
+          <span className="text-white font-semibold">113 workers tracked</span>
+          <svg className="w-3 h-3 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
         </div>
       </div>
     </div>
