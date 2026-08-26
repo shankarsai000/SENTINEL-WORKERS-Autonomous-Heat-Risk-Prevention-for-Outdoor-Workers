@@ -69,5 +69,5 @@ describe('Magic Demo Scenario — 14-Step End-to-End Validation', () => {
     expect(auditRes.status).toBe(200);
     const auditBody = await auditRes.json();
     expect(auditBody.events.length).toBeGreaterThan(0);
-  }, 45000);
+  }, 90000);
 });

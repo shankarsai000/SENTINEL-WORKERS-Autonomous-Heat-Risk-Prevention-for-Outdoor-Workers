@@ -201,25 +201,25 @@ export const RiskMap: React.FC<RiskMapProps> = ({
                     strokeDasharray="3,2"
                   />
                   <rect
-                    x={zone.x - 12}
-                    y={zone.y + zone.radius - 4}
-                    width="24"
+                    x={zone.x - 14}
+                    y={zone.y + zone.radius - 2}
+                    width="28"
                     height="4.5"
-                    rx="1"
-                    fill="rgba(15, 23, 42, 0.9)"
+                    rx="1.5"
+                    fill="rgba(15, 23, 42, 0.95)"
                     stroke={getIncidentSeverityStroke(inc.severity)}
-                    strokeWidth="0.5"
+                    strokeWidth="0.6"
                   />
                   <text
                     x={zone.x}
-                    y={zone.y + zone.radius - 1}
+                    y={zone.y + zone.radius + 1.2}
                     textAnchor="middle"
                     fill="#f8fafc"
-                    fontSize="2.2"
+                    fontSize="2.1"
                     fontFamily="monospace"
                     fontWeight="bold"
                   >
-                    🚨 {inc.incident_id} ({inc.affected_worker_count} affected)
+                    🚨 {inc.severity} ({inc.affected_worker_count} Affected)
                   </text>
                 </g>
               );

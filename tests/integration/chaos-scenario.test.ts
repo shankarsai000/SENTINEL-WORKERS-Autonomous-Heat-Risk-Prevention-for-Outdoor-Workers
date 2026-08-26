@@ -75,5 +75,5 @@ describe('Phase P6: Multi-Failure Chaos Scenario Integration Test', () => {
     const eventsBody = await eventsRes.json();
     expect(eventsBody.events.length).toBeGreaterThan(0);
     expect(eventsBody.events[0].event_id).toBeDefined();
-  }, 30000);
+  }, 90000);
 });

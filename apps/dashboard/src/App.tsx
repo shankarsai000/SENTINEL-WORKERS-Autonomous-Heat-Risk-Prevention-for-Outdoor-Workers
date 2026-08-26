@@ -283,146 +283,149 @@ export const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-sky-500 selection:text-white">
       {/* Top Navigation Bar */}
-      <header className="bg-slate-900/90 border-b border-slate-800 backdrop-blur-md px-5 py-3 sticky top-0 z-30 flex items-center justify-between shadow-md">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 rounded-lg bg-sky-500 flex items-center justify-center font-bold text-white shadow-lg shadow-sky-500/30">
-            🛡️
+      <header className="bg-slate-900/95 border-b border-slate-800 backdrop-blur-md px-4 sm:px-6 py-3.5 sticky top-0 z-30 shadow-lg">
+        <div className="max-w-[1680px] mx-auto flex flex-wrap items-center justify-between gap-3">
+          {/* Brand Logo & Title */}
+          <div className="flex items-center space-x-3">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-sky-600 flex items-center justify-center font-bold text-white shadow-lg shadow-sky-500/25 text-lg">
+              🛡️
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <h1 className="text-base font-bold tracking-tight text-white">SENTINEL WORKERS</h1>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
+                  Supervisor Ops Center
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Autonomous Heat-Risk Prevention & Hyperlocal Environmental Intelligence
+              </p>
+            </div>
           </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <h1 className="text-base font-bold tracking-tight text-white">SENTINEL WORKERS</h1>
-              <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-sky-950 text-sky-400 border border-sky-800">
-                Supervisor Ops Center
+
+          {/* Center: Site Switcher & Status Indicators */}
+          <div className="flex flex-wrap items-center gap-2 text-xs font-mono">
+            <select
+              value={selectedSiteId}
+              onChange={(e) => setSelectedSiteId(e.target.value)}
+              className="bg-slate-800 hover:bg-slate-750 border border-slate-700 text-slate-200 rounded-lg px-3 py-1.5 focus:ring-1 focus:ring-sky-500 outline-none transition cursor-pointer"
+            >
+              {sites.map((s) => (
+                <option key={s.site_id} value={s.site_id}>
+                  {s.name} ({s.site_id})
+                </option>
+              ))}
+            </select>
+
+            <div className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800/90 rounded-lg border border-slate-700">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
+                }`}
+              ></span>
+              <span className="text-slate-300 font-semibold">{isConnected ? 'LIVE WS' : 'DISCONNECTED'}</span>
+            </div>
+
+            <div className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800/90 rounded-lg border border-slate-700">
+              <span className="text-slate-400">FortyGuard:</span>
+              <span className="text-emerald-400 font-bold">
+                {opsSummary?.fortyguard_status || 'CONNECTED'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-400">
-              Autonomous Heat-Risk Prevention & Microclimate Intelligence
-            </p>
-          </div>
-        </div>
 
-        {/* Center: Site Switcher & Status Indicators */}
-        <div className="hidden md:flex items-center space-x-3 text-xs font-mono">
-          <select
-            value={selectedSiteId}
-            onChange={(e) => setSelectedSiteId(e.target.value)}
-            className="bg-slate-800 border border-slate-700 text-slate-200 rounded-lg px-3 py-1.5 focus:ring-1 focus:ring-sky-500 outline-none"
-          >
-            {sites.map((s) => (
-              <option key={s.site_id} value={s.site_id}>
-                {s.name} ({s.site_id})
-              </option>
-            ))}
-          </select>
-
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-800 rounded-lg border border-slate-700">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-rose-500'
-              }`}
-            ></span>
-            <span className="text-slate-300">{isConnected ? 'LIVE WS' : 'DISCONNECTED'}</span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-800 rounded-lg border border-slate-700">
-            <span className="text-slate-400">FortyGuard:</span>
-            <span className="text-emerald-400 font-bold">
-              {opsSummary?.fortyguard_status || 'CONNECTED'}
-            </span>
-          </div>
-
-          <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-800 rounded-lg border border-slate-700">
-            <span className="text-slate-400">Data Freshness:</span>
-            <span
-              className={`font-bold ${
-                opsSummary?.data_freshness === 'STALE'
-                  ? 'text-rose-400'
-                  : opsSummary?.data_freshness === 'AGING'
-                  ? 'text-amber-400'
-                  : 'text-emerald-400'
-              }`}
-            >
-              {opsSummary?.data_freshness || 'FRESH'}
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Role Switcher & Audit Link */}
-        <div className="flex items-center space-x-3 text-xs">
-          <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-lg border border-slate-700">
-            {(['SUPERVISOR', 'OPERATOR', 'VIEWER'] as SupervisorRole[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setUserRole(r)}
-                className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition ${
-                  userRole === r
-                    ? 'bg-sky-600 text-white shadow'
-                    : 'text-slate-400 hover:text-slate-200'
+            <div className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-slate-800/90 rounded-lg border border-slate-700">
+              <span className="text-slate-400">Data Freshness:</span>
+              <span
+                className={`font-bold ${
+                  opsSummary?.data_freshness === 'STALE'
+                    ? 'text-rose-400'
+                    : opsSummary?.data_freshness === 'AGING'
+                    ? 'text-amber-400'
+                    : 'text-emerald-400'
                 }`}
               >
-                {r}
-              </button>
-            ))}
+                {opsSummary?.data_freshness || 'FRESH'}
+              </span>
+            </div>
           </div>
 
-          <button
-            onClick={() => {
-              setAuditFilterRef(null);
-              setAuditModalOpen(true);
-            }}
-            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 font-mono text-xs flex items-center space-x-1 transition"
-          >
-            <span>🔐</span>
-            <span>Audit Trail</span>
-          </button>
+          {/* Right: Role Switcher & Audit Link */}
+          <div className="flex items-center space-x-2.5 text-xs">
+            <div className="flex items-center space-x-1 bg-slate-800/90 p-1 rounded-lg border border-slate-700">
+              {(['SUPERVISOR', 'OPERATOR', 'VIEWER'] as SupervisorRole[]).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setUserRole(r)}
+                  className={`px-2.5 py-1 rounded text-xs font-mono font-medium transition cursor-pointer ${
+                    userRole === r
+                      ? 'bg-sky-600 text-white shadow-sm font-bold'
+                      : 'text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => {
+                setAuditFilterRef(null);
+                setAuditModalOpen(true);
+              }}
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-lg border border-slate-700 font-mono text-xs flex items-center space-x-1.5 transition shadow-sm cursor-pointer"
+            >
+              <span>🔐</span>
+              <span className="font-semibold">Audit Trail</span>
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Main Operational Container */}
-      <main className="flex-1 p-5 space-y-4 max-w-7xl mx-auto w-full">
+      <main className="flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6 max-w-[1680px] w-full mx-auto">
         {/* 5-Second Aggregated Telemetry Ribbon */}
         {opsSummary && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3 font-mono">
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Total Workers</div>
-              <div className="text-xl font-bold text-slate-100 mt-1">{opsSummary.active_workers}</div>
-              <div className="text-[10px] text-emerald-400 mt-0.5">{opsSummary.green_count} Green (Safe)</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3.5 font-mono">
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Total Active Workers</div>
+              <div className="text-2xl font-bold text-slate-100 mt-1">{opsSummary.active_workers}</div>
+              <div className="text-[11px] text-emerald-400 mt-0.5 font-medium">{opsSummary.green_count} Green (Safe)</div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Watch & Elevated</div>
-              <div className="text-xl font-bold text-yellow-400 mt-1">
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Watch & Elevated</div>
+              <div className="text-2xl font-bold text-yellow-400 mt-1">
                 {opsSummary.watch_count + opsSummary.elevated_count}
               </div>
-              <div className="text-[10px] text-yellow-500 mt-0.5">Monitoring thresholds</div>
+              <div className="text-[11px] text-yellow-500 mt-0.5 font-medium">Monitoring thresholds</div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">High & Critical</div>
-              <div className="text-xl font-bold text-red-400 mt-1">
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">High & Critical</div>
+              <div className="text-2xl font-bold text-red-400 mt-1">
                 {opsSummary.high_count + opsSummary.critical_count}
               </div>
-              <div className="text-[10px] text-red-500 mt-0.5">{opsSummary.critical_count} Critical</div>
+              <div className="text-[11px] text-red-500 mt-0.5 font-medium">{opsSummary.critical_count} Critical</div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Early Warnings</div>
-              <div className="text-xl font-bold text-amber-400 mt-1">
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Early Warnings</div>
+              <div className="text-2xl font-bold text-amber-400 mt-1">
                 {opsSummary.predicted_deterioration_count}
               </div>
-              <div className="text-[10px] text-amber-500 mt-0.5">Pred breach &lt; 30m</div>
+              <div className="text-[11px] text-amber-500 mt-0.5 font-medium">Pred breach &lt; 30m</div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Active Incidents</div>
-              <div className="text-xl font-bold text-purple-400 mt-1">{opsSummary.active_incidents}</div>
-              <div className="text-[10px] text-purple-500 mt-0.5">Spatial clusters</div>
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Active Incidents</div>
+              <div className="text-2xl font-bold text-purple-400 mt-1">{opsSummary.active_incidents}</div>
+              <div className="text-[11px] text-purple-400/80 mt-0.5 font-medium">Spatial clusters</div>
             </div>
 
-            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 shadow-md">
-              <div className="text-[10px] text-slate-400 uppercase font-bold">Pending Acks</div>
-              <div className="text-xl font-bold text-rose-400 mt-1">{opsSummary.pending_ack_count}</div>
-              <div className="text-[10px] text-rose-500 mt-0.5">Advisories awaiting ack</div>
+            <div className="bg-slate-900/90 border border-slate-800 hover:border-slate-700 rounded-xl p-3.5 shadow-md transition">
+              <div className="text-[10px] text-slate-400 uppercase font-bold tracking-wider">Pending Acks</div>
+              <div className="text-2xl font-bold text-rose-400 mt-1">{opsSummary.pending_ack_count}</div>
+              <div className="text-[11px] text-rose-400/80 mt-0.5 font-medium">Advisories awaiting ack</div>
             </div>
           </div>
         )}
@@ -436,9 +439,9 @@ export const App: React.FC = () => {
         />
 
         {/* 2-Column Operational Command Center Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
           {/* Left: Priority Worker Queue & Incident Center (7 cols) */}
-          <div className="lg:col-span-7 flex flex-col space-y-4">
+          <div className="xl:col-span-7 flex flex-col space-y-6">
             <PriorityQueue
               items={priorityItems}
               selectedWorkerId={selectedWorkerId}
@@ -459,7 +462,7 @@ export const App: React.FC = () => {
           </div>
 
           {/* Right: Live Interactive Risk Map & Spatial Zones (5 cols) */}
-          <div className="lg:col-span-5 flex flex-col space-y-4">
+          <div className="xl:col-span-5 flex flex-col space-y-6">
             <RiskMap
               siteName={mapData?.site_name || 'Phoenix Jobsite'}
               zones={mapData?.zones}

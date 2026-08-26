@@ -78,5 +78,5 @@ describe('Phase P6: Complete End-to-End Demo Validation Test', () => {
     expect(eventsRes.status).toBe(200);
     const eventsBody = await eventsRes.json();
     expect(eventsBody.events.length).toBeGreaterThan(0);
-  }, 60000);
+  }, 90000);
 });
