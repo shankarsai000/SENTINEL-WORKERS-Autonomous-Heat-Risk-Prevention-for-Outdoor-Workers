@@ -167,7 +167,7 @@ export function createSentinelServer() {
   app.use('/api', createIncidentsRouter(orchestrator, db));
   app.use('/api', createOperationsRouter(orchestrator, db));
   app.use('/api', createSimulationRouter(orchestrator));
-  app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator));
+  app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator, db));
   app.use('/api', createDevRouter(orchestrator, db));
 
   // Standardized Error handling middleware

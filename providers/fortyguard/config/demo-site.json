@@ -1,0 +1,36 @@
+{
+  "site_id": "PHX-SITE-01",
+  "name": "Sentinel Phoenix Construction Demo Site",
+  "country": "US",
+  "state": "AZ",
+  "city": "Phoenix",
+  "timezone": "America/Phoenix",
+  "latitude": 33.4484,
+  "longitude": -112.0740,
+  "regional_coverage": "US_ONLY",
+  "aoi": {
+    "type": "FeatureCollection",
+    "features": [
+      {
+        "type": "Feature",
+        "properties": {
+          "name": "Phoenix Jobsite Sector A-D",
+          "site_id": "PHX-SITE-01",
+          "facility_type": "Commercial High-Rise & Excavation"
+        },
+        "geometry": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [-112.0785, 33.4445],
+              [-112.0785, 33.4525],
+              [-112.0695, 33.4525],
+              [-112.0695, 33.4445],
+              [-112.0785, 33.4445]
+            ]
+          ]
+        }
+      }
+    ]
+  }
+}

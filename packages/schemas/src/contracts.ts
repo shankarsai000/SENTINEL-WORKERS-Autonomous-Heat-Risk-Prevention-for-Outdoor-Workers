@@ -109,6 +109,7 @@ export interface ThermalObservation {
   freshness_seconds: number;
   confidence: number; // 0.0 - 1.0
   activity_id?: string;
+  provenance?: any;
 }
 
 export type DataFreshness = 'FRESH' | 'AGING' | 'STALE';

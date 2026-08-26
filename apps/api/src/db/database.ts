@@ -479,8 +479,17 @@ export class SentinelDatabase {
     const rows = this.db.prepare('SELECT * FROM sites').all() as any[];
     return rows.map((r) => ({
       ...r,
-      cooling_resources: JSON.parse(r.cooling_resources),
+      cooling_resources: typeof r.cooling_resources === 'string' ? JSON.parse(r.cooling_resources) : r.cooling_resources,
     }));
+  }
+
+  public getSiteById(siteId: string): Site | null {
+    const row = this.db.prepare('SELECT * FROM sites WHERE site_id = ?').get(siteId) as any;
+    if (!row) return null;
+    return {
+      ...row,
+      cooling_resources: typeof row.cooling_resources === 'string' ? JSON.parse(row.cooling_resources) : row.cooling_resources,
+    };
   }
 
   public getWorkers(siteId?: string): Worker[] {
@@ -1299,6 +1308,99 @@ export class SentinelDatabase {
       ...r,
       metrics: JSON.parse(r.metrics),
     }));
+  }
+
+  // --- FortyGuard Activity Logging ---
+
+  public recordFortyGuardActivity(activity: {
+    activity_id: string;
+    endpoint: string;
+    status: string;
+    submitted_at: string;
+    completed_at?: string;
+    failed_at?: string;
+    request_hash?: string;
+    site_id?: string;
+    error_code?: string;
+    error_message?: string;
+    provider_request_id?: string;
+  }): void {
+    const now = new Date().toISOString();
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO fortyguard_activities (
+        activity_id, endpoint, status, submitted_at, completed_at, failed_at,
+        request_hash, site_id, error_code, error_message, provider_request_id,
+        created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.run(
+      activity.activity_id,
+      activity.endpoint,
+      activity.status,
+      activity.submitted_at,
+      activity.completed_at || null,
+      activity.failed_at || null,
+      activity.request_hash || null,
+      activity.site_id || null,
+      activity.error_code || null,
+      activity.error_message || null,
+      activity.provider_request_id || null,
+      now,
+      now
+    );
+  }
+
+  public updateFortyGuardActivityStatus(
+    activityId: string,
+    status: string,
+    options: {
+      completed_at?: string;
+      failed_at?: string;
+      error_code?: string;
+      error_message?: string;
+    } = {}
+  ): void {
+    const now = new Date().toISOString();
+    let sql = 'UPDATE fortyguard_activities SET status = ?, updated_at = ?';
+    const params: any[] = [status, now];
+
+    if (options.completed_at) {
+      sql += ', completed_at = ?';
+      params.push(options.completed_at);
+    }
+    if (options.failed_at) {
+      sql += ', failed_at = ?';
+      params.push(options.failed_at);
+    }
+    if (options.error_code) {
+      sql += ', error_code = ?';
+      params.push(options.error_code);
+    }
+    if (options.error_message) {
+      sql += ', error_message = ?';
+      params.push(options.error_message);
+    }
+
+    sql += ' WHERE activity_id = ?';
+    params.push(activityId);
+
+    const stmt = this.db.prepare(sql);
+    stmt.run(...params);
+  }
+
+  public getFortyGuardActivity(activityId: string): any | null {
+    const stmt = this.db.prepare('SELECT * FROM fortyguard_activities WHERE activity_id = ?');
+    return stmt.get(activityId) || null;
+  }
+
+  public getRecentFortyGuardActivities(limit: number = 50): any[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM fortyguard_activities
+      ORDER BY created_at DESC
+      LIMIT ?
+    `);
+    return stmt.all(limit) as any[];
   }
 
   public close(): void {

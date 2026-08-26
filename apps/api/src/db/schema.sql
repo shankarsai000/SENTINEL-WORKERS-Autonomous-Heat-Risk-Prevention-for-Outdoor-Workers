@@ -275,6 +275,22 @@ CREATE TABLE IF NOT EXISTS prediction_events (
   reason_codes TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS fortyguard_activities (
+  activity_id TEXT PRIMARY KEY,
+  endpoint TEXT NOT NULL,
+  status TEXT NOT NULL,
+  submitted_at TEXT NOT NULL,
+  completed_at TEXT,
+  failed_at TEXT,
+  request_hash TEXT,
+  site_id TEXT,
+  error_code TEXT,
+  error_message TEXT,
+  provider_request_id TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_obs_site_time ON thermal_observations(site_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_risk_worker_time ON risk_states(worker_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_risk_site_level ON risk_states(site_id, level);
@@ -283,3 +299,4 @@ CREATE INDEX IF NOT EXISTS idx_pred_site_time ON predictive_risk_states(site_id,
 CREATE INDEX IF NOT EXISTS idx_pred_events_time ON prediction_events(timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_actions_worker ON actions(worker_id, issued_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_fg_activities_status ON fortyguard_activities(status, created_at DESC);

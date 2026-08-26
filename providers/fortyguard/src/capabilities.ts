@@ -68,7 +68,7 @@ export class FortyGuardCapabilities {
       }
 
       // If probe was 404 (ACTIVITY_NOT_FOUND), authentication succeeded!
-      if (err?.statusCode === 404 || err?.errorCode === 'ACTIVITY_NOT_FOUND') {
+      if (err?.http_status === 404 || err?.code === 'ACTIVITY_NOT_FOUND' || err?.statusCode === 404 || err?.errorCode === 'ACTIVITY_NOT_FOUND') {
         return {
           configured: true,
           authenticated: true,
