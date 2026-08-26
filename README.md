@@ -119,22 +119,23 @@ docker compose up --build
 - **API Server**: [http://localhost:3001](http://localhost:3001)
 - **Risk Service**: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Option B: Local Monorepo Startup
+### Option B: Local Monorepo Startup (One-Command)
 
-1. **Install Node Dependencies**:
+1. **One-Command Launch (PowerShell / Windows)**:
    ```bash
-   npm install
+   ./start.ps1
+   # or
+   start.bat
    ```
 
-2. **Install Python Dependencies**:
+2. **Or Standard NPM / Python Setup**:
    ```bash
-   pip install -r apps/risk-service/requirements.txt
-   ```
+   # Create virtual environment & install requirements
+   python -m venv .venv
+   .venv/Scripts/pip install -r apps/risk-service/requirements.txt
 
-3. **Build Packages & Start All Services**:
-   ```bash
-   npm run build
-   npm run dev
+   # Start all 3 services concurrently (API on 3001, Dashboard on 3000, Risk on 8000)
+   npm start
    ```
 
 ---
