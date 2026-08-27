@@ -102,7 +102,7 @@ export function createFortyGuardRouter(
           longitude: -112.0740,
           zone_id: 'ZONE-A',
           worker_count: 50,
-          cooling_resources: ['TRAILER-AC-01', 'MIST-STATION-01'],
+          cooling_resources: { shade_stations: 2, water_points: 4, misting_fans: 2, ac_trailers: 1 },
           emergency_policy_id: 'POL-HEAT-2026',
         };
       }

@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSentinelWebSocket } from './hooks/useSentinelWebSocket.js';
 import { Sidebar } from './components/Sidebar.js';
-import { TopKpiCards } from './components/TopKpiCards.js';
-import { PriorityQueue } from './components/PriorityQueue.js';
-import { RiskMap } from './components/RiskMap.js';
-import { RightSidebarCards } from './components/RightSidebarCards.js';
-import { BottomAnalyticsRow } from './components/BottomAnalyticsRow.js';
 import { WorkerDetailInspector } from './components/WorkerDetailInspector.js';
 import { IncidentDetailInspector } from './components/IncidentDetailInspector.js';
 import { AuditInspectorModal } from './components/AuditInspectorModal.js';
+import { OverviewView } from './components/views/OverviewView.js';
+import { SpatialMapView } from './components/views/SpatialMapView.js';
+import { WorkersFleetView } from './components/views/WorkersFleetView.js';
+import { IncidentsAnalyticsView } from './components/views/IncidentsAnalyticsView.js';
+import { ActionsAuditView } from './components/views/ActionsAuditView.js';
 import {
   Site,
   Worker,
@@ -187,10 +187,83 @@ export const App: React.FC = () => {
     }
   };
 
+  // Incident handlers
+  const handleAcknowledgeIncident = async (incidentId: string) => {
+    try {
+      await fetch(`/api/incidents/${incidentId}/ack`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({ actor: `${userRole} (Console)` }),
+      });
+      loadOperationsData();
+      refreshData();
+    } catch (e) {
+      console.error('Incident ack error:', e);
+    }
+  };
+
+  const handleAssignIncident = async (incidentId: string, owner: string) => {
+    try {
+      await fetch(`/api/incidents/${incidentId}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({ owner, actor: `${userRole} (Console)` }),
+      });
+      loadOperationsData();
+      refreshData();
+    } catch (e) {
+      console.error('Incident assign error:', e);
+    }
+  };
+
+  const handleStartMitigation = async (incidentId: string) => {
+    try {
+      await fetch(`/api/incidents/${incidentId}/mitigate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({ actor: `${userRole} (Console)` }),
+      });
+      loadOperationsData();
+      refreshData();
+    } catch (e) {
+      console.error('Incident mitigate error:', e);
+    }
+  };
+
+  const handleEscalateIncident = async (incidentId: string, reason: string) => {
+    try {
+      await fetch(`/api/incidents/${incidentId}/escalate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({ reason, actor: `${userRole} (Console)` }),
+      });
+      loadOperationsData();
+      refreshData();
+    } catch (e) {
+      console.error('Incident escalate error:', e);
+    }
+  };
+
+  const handleResolveIncident = async (incidentId: string, resolution: string) => {
+    try {
+      await fetch(`/api/incidents/${incidentId}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-user-role': userRole },
+        body: JSON.stringify({ resolution, actor: `${userRole} (Console)` }),
+      });
+      loadOperationsData();
+      refreshData();
+    } catch (e) {
+      console.error('Incident resolve error:', e);
+    }
+  };
+
   const openAuditInspector = (payloadRef: string) => {
     setAuditFilterRef(payloadRef);
     setAuditModalOpen(true);
   };
+
+  const activeIncidentsCount = incidents.filter((i) => i.status !== 'RESOLVED' && i.status !== 'CLOSED').length;
 
   return (
     <div className="min-h-screen bg-[#0b101b] text-slate-100 flex font-sans selection:bg-blue-600 selection:text-white">
@@ -258,13 +331,6 @@ export const App: React.FC = () => {
 
           {/* Right Header Controls */}
           <div className="flex items-center space-x-3">
-            {/* Theme Sun Icon */}
-            <button className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1e293b]/60 transition">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-            </button>
-
             {/* Notification Bell */}
             <div className="relative">
               <button className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1e293b]/60 transition">
@@ -278,7 +344,10 @@ export const App: React.FC = () => {
             </div>
 
             {/* Export Report Button */}
-            <button className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#131b2e] hover:bg-[#1e293b] border border-[#1e293b] text-slate-200 text-xs font-semibold transition cursor-pointer">
+            <button
+              onClick={() => setActiveTab('reports')}
+              className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#131b2e] hover:bg-[#1e293b] border border-[#1e293b] text-slate-200 text-xs font-semibold transition cursor-pointer"
+            >
               <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
               </svg>
@@ -287,68 +356,170 @@ export const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Dashboard Main Workspace Grid */}
-        <main className="p-4 sm:p-5 space-y-3.5 max-w-[1600px] w-full mx-auto">
-          {/* Top Row: KPI Cards with Time Filter on Right */}
-          <div className="space-y-2">
-            <div className="flex justify-end">
-              <div className="relative">
-                <select
-                  value={timeRange}
-                  onChange={(e) => setTimeRange(e.target.value)}
-                  className="bg-[#111828] border border-[#1e293b] text-slate-300 text-xs rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer pr-6 appearance-none font-medium"
-                >
-                  <option value="1h">Last 1 hour</option>
-                  <option value="3h">Last 3 hours</option>
-                  <option value="8h">Full Shift</option>
-                </select>
-                <svg className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
+        {/* Top Multi-Panel Switcher Bar */}
+        <div className="px-4 sm:px-5 pt-3 pb-1 max-w-[1600px] w-full mx-auto">
+          <div className="flex items-center space-x-2 bg-[#0e1424] p-1.5 rounded-xl border border-[#1e293b]/70 overflow-x-auto select-none">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
+                activeTab === 'overview'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
+              }`}
+            >
+              <span>🏢</span>
+              <span>Ops Center Overview</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('map')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
+                activeTab === 'map'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
+              }`}
+            >
+              <span>🗺️</span>
+              <span>Live Spatial Map & Heatmap</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('workers')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
+                activeTab === 'workers'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
+              }`}
+            >
+              <span>👷</span>
+              <span>Worker Fleet & Vitals</span>
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-semibold">
+                113
+              </span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('incidents')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
+                activeTab === 'incidents' || activeTab === 'reports'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
+              }`}
+            >
+              <span>📈</span>
+              <span>Incidents & Predictive Analytics</span>
+              {activeIncidentsCount > 0 && (
+                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
+                  {activeIncidentsCount}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setActiveTab('actions')}
+              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
+                activeTab === 'actions' || activeTab === 'audit'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
+              }`}
+            >
+              <span>🛡️</span>
+              <span>Safety Actions & Audit</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Dashboard Main Workspace */}
+        <main className="p-4 sm:p-5 max-w-[1600px] w-full mx-auto">
+          {/* Panel 1: Operations Center Overview */}
+          {activeTab === 'overview' && (
+            <OverviewView
+              opsSummary={opsSummary}
+              priorityItems={priorityItems}
+              mapData={mapData}
+              incidents={incidents}
+              latestObservation={latestObservation}
+              selectedWorkerId={selectedWorkerId}
+              selectedIncidentId={selectedIncidentId}
+              timeRange={timeRange}
+              onTimeRangeChange={setTimeRange}
+              onSelectWorker={(wId) => setSelectedWorkerId(wId)}
+              onSelectIncident={(iId) => setSelectedIncidentId(iId)}
+            />
+          )}
+
+          {/* Panel 2: Live Spatial Risk & Heatmap Studio */}
+          {activeTab === 'map' && (
+            <SpatialMapView
+              mapData={mapData}
+              incidents={incidents}
+              latestObservation={latestObservation}
+              selectedWorkerId={selectedWorkerId}
+              selectedIncidentId={selectedIncidentId}
+              onSelectWorker={(wId) => setSelectedWorkerId(wId)}
+              onSelectIncident={(iId) => setSelectedIncidentId(iId)}
+            />
+          )}
+
+          {/* Panel 3: Worker Fleet & Predictive Vitals Hub */}
+          {activeTab === 'workers' && (
+            <WorkersFleetView
+              priorityItems={priorityItems}
+              selectedWorkerId={selectedWorkerId}
+              onSelectWorker={(wId) => setSelectedWorkerId(wId)}
+            />
+          )}
+
+          {/* Panel 4: Incidents & Predictive Analytics */}
+          {(activeTab === 'incidents' || activeTab === 'reports') && (
+            <IncidentsAnalyticsView
+              incidents={incidents}
+              userRole={userRole}
+              selectedIncidentId={selectedIncidentId}
+              latestObservation={latestObservation}
+              onSelectIncident={(iId) => setSelectedIncidentId(iId)}
+              onAcknowledgeIncident={handleAcknowledgeIncident}
+              onAssignIncident={handleAssignIncident}
+              onStartMitigation={handleStartMitigation}
+              onEscalateIncident={handleEscalateIncident}
+              onResolveIncident={handleResolveIncident}
+            />
+          )}
+
+          {/* Panel 5: Safety Actions & Cryptographic Audit Trail */}
+          {(activeTab === 'actions' || activeTab === 'audit') && (
+            <ActionsAuditView
+              actions={actions}
+              auditEvents={auditEvents}
+              onAcknowledgeAction={handleAcknowledgeAction}
+              onOverrideAction={handleOverrideAction}
+              onOpenAuditModal={(ref) => openAuditInspector(ref || '')}
+            />
+          )}
+
+          {/* Settings Tab fallback */}
+          {activeTab === 'settings' && (
+            <div className="bg-[#0e1424] rounded-xl border border-[#1e293b] p-6 space-y-4">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-white flex items-center space-x-2">
+                <span>⚙️</span>
+                <span>System Configuration & Policy Guardrails</span>
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                <div className="p-4 rounded-lg bg-[#131b2e] border border-[#1e293b] space-y-2">
+                  <div className="font-bold text-slate-200">Active Safety Policy</div>
+                  <div className="text-slate-400">Policy: <span className="text-blue-400 font-bold">demo-construction-v1.0.0</span></div>
+                  <div className="text-slate-400">Extreme Temp Work Halt: <span className="text-rose-400 font-bold">46.0°C</span></div>
+                  <div className="text-slate-400">Elevated Rest Ratio: <span className="text-amber-400 font-bold">15 min / 45 min work</span></div>
+                </div>
+                <div className="p-4 rounded-lg bg-[#131b2e] border border-[#1e293b] space-y-2">
+                  <div className="font-bold text-slate-200">Environmental Data Mode</div>
+                  <div className="text-slate-400">Primary Provider: <span className="text-emerald-400 font-bold">FortyGuard Enterprise API</span></div>
+                  <div className="text-slate-400">Credit Protection Cache: <span className="text-slate-200 font-bold">15 min TTL</span></div>
+                  <div className="text-slate-400">Sensor Failover: <span className="text-slate-200 font-bold">Autonomous Hybrid Mode</span></div>
+                </div>
               </div>
             </div>
-
-            <TopKpiCards summary={opsSummary} />
-          </div>
-
-          {/* Middle Row: 3-Column Operations Center Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch min-h-[460px]">
-            {/* Left: Supervisor Priority Queue (approx 28% = 3.5 cols) */}
-            <div className="lg:col-span-4 xl:col-span-3 h-full">
-              <PriorityQueue
-                items={priorityItems}
-                selectedWorkerId={selectedWorkerId}
-                onSelectWorker={(wId) => setSelectedWorkerId(wId)}
-              />
-            </div>
-
-            {/* Center: Live Risk Map & Spatial Zones (approx 48% = 6 cols) */}
-            <div className="lg:col-span-8 xl:col-span-6 h-full">
-              <RiskMap
-                siteName={mapData?.site_name || 'Sky Harbor Air Logistics Hub'}
-                zones={mapData?.zones}
-                coolingPoints={mapData?.cooling_points}
-                workers={mapData?.workers}
-                activeIncidents={incidents}
-                selectedWorkerId={selectedWorkerId}
-                selectedIncidentId={selectedIncidentId}
-                onSelectWorker={(wId) => setSelectedWorkerId(wId)}
-                onSelectIncident={(iId) => setSelectedIncidentId(iId)}
-              />
-            </div>
-
-            {/* Right: Alerts & System Health (approx 24% = 3 cols) */}
-            <div className="lg:col-span-12 xl:col-span-3 h-full">
-              <RightSidebarCards summary={opsSummary} />
-            </div>
-          </div>
-
-          {/* Bottom Row: 4 Analytics Cards */}
-          <BottomAnalyticsRow
-            incidents={incidents}
-            onSelectIncident={(id) => setSelectedIncidentId(id)}
-            observation={latestObservation}
-          />
+          )}
         </main>
 
         {/* Global Footer */}
@@ -390,9 +561,12 @@ export const App: React.FC = () => {
       {/* Cryptographic Audit Trail Inspector Modal */}
       <AuditInspectorModal
         isOpen={auditModalOpen}
+        onClose={() => {
+          setAuditModalOpen(false);
+          setAuditFilterRef(null);
+        }}
         filterRef={auditFilterRef}
         auditEvents={auditEvents}
-        onClose={() => setAuditModalOpen(false)}
       />
     </div>
   );
