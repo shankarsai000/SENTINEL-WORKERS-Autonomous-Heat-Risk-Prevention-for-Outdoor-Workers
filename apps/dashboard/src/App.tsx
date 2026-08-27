@@ -33,6 +33,7 @@ export const App: React.FC = () => {
 
   // Navigation & Operational state
   const [activeTab, setActiveTab] = useState<string>('overview');
+  const [viewDropdownOpen, setViewDropdownOpen] = useState<boolean>(false);
   const [sites, setSites] = useState<Site[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<string>('PHX-SITE-01');
   const [userRole] = useState<SupervisorRole>('SUPERVISOR');
@@ -265,6 +266,45 @@ export const App: React.FC = () => {
 
   const activeIncidentsCount = incidents.filter((i) => i.status !== 'RESOLVED' && i.status !== 'CLOSED').length;
 
+  const viewOptions = [
+    {
+      id: 'overview',
+      label: 'Ops Center Overview',
+      icon: '🏢',
+      desc: 'KPIs, priority queue & spatial risk map',
+    },
+    {
+      id: 'map',
+      label: 'Live Spatial Map & Heatmap',
+      icon: '🗺️',
+      desc: 'Microclimate studio & cooling stations',
+    },
+    {
+      id: 'workers',
+      label: 'Worker Fleet & Vitals',
+      icon: '👷',
+      badge: '113',
+      desc: 'Workforce physiological telemetry',
+    },
+    {
+      id: 'incidents',
+      label: 'Incidents & Predictive Analytics',
+      icon: '📈',
+      badge: activeIncidentsCount > 0 ? String(activeIncidentsCount) : undefined,
+      badgeColor: 'bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold',
+      desc: 'Cluster triage & risk trajectory',
+    },
+    {
+      id: 'actions',
+      label: 'Safety Actions & Audit',
+      icon: '🛡️',
+      desc: 'Intervention ledger & HMAC-SHA256 proof',
+    },
+  ];
+
+  const normalizedActiveTab = activeTab === 'reports' ? 'incidents' : activeTab === 'audit' ? 'actions' : activeTab;
+  const currentView = viewOptions.find((v) => v.id === normalizedActiveTab) || viewOptions[0];
+
   return (
     <div className="min-h-screen bg-[#0b101b] text-slate-100 flex font-sans selection:bg-blue-600 selection:text-white">
       {/* Left Sidebar Navigation */}
@@ -277,7 +317,7 @@ export const App: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-y-auto max-h-screen">
         {/* Top Header Bar */}
-        <header className="bg-[#0e1424]/90 border-b border-[#1e293b]/70 backdrop-blur-md px-6 py-3 sticky top-0 z-20 flex items-center justify-between">
+        <header className="bg-[#0e1424]/95 border-b border-[#1e293b]/70 backdrop-blur-md px-6 py-2.5 sticky top-0 z-30 flex items-center justify-between">
           {/* Site Selector & Status Pills */}
           <div className="flex items-center space-x-4">
             {/* Site Dropdown */}
@@ -329,8 +369,79 @@ export const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Right Header Controls */}
+          {/* Right Header Controls & Studio View Selector Dropdown */}
           <div className="flex items-center space-x-3">
+            {/* View Selector Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setViewDropdownOpen(!viewDropdownOpen)}
+                className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-[#131b2e] hover:bg-[#1a233a] border border-slate-700/80 text-slate-100 text-xs font-bold transition shadow-sm cursor-pointer"
+              >
+                <span className="text-sm">{currentView.icon}</span>
+                <span className="font-semibold text-white">{currentView.label}</span>
+                {currentView.badge && (
+                  <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-mono ${currentView.badgeColor || 'bg-slate-800 text-slate-300'}`}>
+                    {currentView.badge}
+                  </span>
+                )}
+                <svg
+                  className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${viewDropdownOpen ? 'rotate-180' : ''}`}
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              {/* Dropdown Menu Overlay & List */}
+              {viewDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-30"
+                    onClick={() => setViewDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-72 bg-[#0e1424] border border-slate-700 rounded-xl shadow-2xl z-40 py-1.5 overflow-hidden backdrop-blur-xl animate-fade-in divide-y divide-slate-800/80">
+                    <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Select Studio View
+                    </div>
+                    <div className="py-1">
+                      {viewOptions.map((opt) => {
+                        const isSelected = normalizedActiveTab === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            onClick={() => {
+                              setActiveTab(opt.id);
+                              setViewDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between transition cursor-pointer ${
+                              isSelected
+                                ? 'bg-sky-500/15 text-sky-300 font-semibold border-l-2 border-sky-500'
+                                : 'text-slate-300 hover:bg-slate-800/60 hover:text-white'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <span className="text-sm shrink-0">{opt.icon}</span>
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{opt.label}</div>
+                                <div className="text-[10px] text-slate-500 truncate">{opt.desc}</div>
+                              </div>
+                            </div>
+                            {opt.badge && (
+                              <span className={`ml-2 px-1.5 py-0.2 rounded-full text-[10px] font-mono shrink-0 ${opt.badgeColor || 'bg-slate-800 text-slate-300'}`}>
+                                {opt.badge}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
             {/* Notification Bell */}
             <div className="relative">
               <button className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1e293b]/60 transition">
@@ -355,79 +466,6 @@ export const App: React.FC = () => {
             </button>
           </div>
         </header>
-
-        {/* Top Multi-Panel Switcher Bar */}
-        <div className="px-4 sm:px-5 pt-3 pb-1 max-w-[1600px] w-full mx-auto">
-          <div className="flex items-center space-x-2 bg-[#0e1424] p-1.5 rounded-xl border border-[#1e293b]/70 overflow-x-auto select-none">
-            <button
-              onClick={() => setActiveTab('overview')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                activeTab === 'overview'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
-              }`}
-            >
-              <span>🏢</span>
-              <span>Ops Center Overview</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('map')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                activeTab === 'map'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
-              }`}
-            >
-              <span>🗺️</span>
-              <span>Live Spatial Map & Heatmap</span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('workers')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                activeTab === 'workers'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
-              }`}
-            >
-              <span>👷</span>
-              <span>Worker Fleet & Vitals</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-slate-800 text-slate-300 font-semibold">
-                113
-              </span>
-            </button>
-
-            <button
-              onClick={() => setActiveTab('incidents')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                activeTab === 'incidents' || activeTab === 'reports'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
-              }`}
-            >
-              <span>📈</span>
-              <span>Incidents & Predictive Analytics</span>
-              {activeIncidentsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-300 border border-rose-500/40 font-bold">
-                  {activeIncidentsCount}
-                </span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('actions')}
-              className={`flex items-center space-x-2 px-3.5 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 ${
-                activeTab === 'actions' || activeTab === 'audit'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-[#131b2e]'
-              }`}
-            >
-              <span>🛡️</span>
-              <span>Safety Actions & Audit</span>
-            </button>
-          </div>
-        </div>
 
         {/* Dashboard Main Workspace */}
         <main className="p-4 sm:p-5 max-w-[1600px] w-full mx-auto">
