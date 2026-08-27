@@ -19,7 +19,8 @@ export interface FleetWorker {
   expected_time_to_threshold_minutes: number | null;
   exposure_duration_mins: number;
   primary_reason: string;
-  last_update: string;
+  core_temp_c: number;
+  heart_rate_bpm: number;
 }
 
 export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
@@ -28,27 +29,43 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
   onSelectWorker,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [riskFilter, setRiskFilter] = useState<'ALL' | 'CRITICAL' | 'HIGH' | 'ELEVATED' | 'WATCH' | 'GREEN'>('ALL');
-  const [roleFilter, setRoleFilter] = useState('ALL');
+  // Default tab: 'ATTENTION'
+  const [statusTab, setStatusTab] = useState<'ATTENTION' | 'ALL' | 'SAFE'>('ATTENTION');
   const [zoneFilter, setZoneFilter] = useState('ALL');
-  const [bulkAlertSent, setBulkAlertSent] = useState<string | null>(null);
+  const [sortField, setSortField] = useState<'RISK' | 'EXPOSURE' | 'ID'>('RISK');
+  const [sortAsc, setSortAsc] = useState(false);
 
-  // Generate enriched worker list
+  // Generate enriched worker fleet (113 workers)
   const fullWorkersList = useMemo<FleetWorker[]>(() => {
-    const list: FleetWorker[] = priorityItems.map((p) => ({
-      worker_id: p.worker_id,
-      role: p.role || 'Laborer',
-      zone_id: p.zone_id || 'ZONE-A',
-      zone_name: p.zone_id === 'ZONE-A' ? 'Zone A · Open Excavation' : p.zone_id === 'ZONE-B' ? 'Zone B · Structural Concrete' : p.zone_id === 'ZONE-C' ? 'Zone C · Steel Framing' : 'Zone D · Shaded Staging',
-      current_risk_score: p.current_risk_score,
-      current_risk_level: p.current_risk_level,
-      predicted_risk_level: p.predicted_risk_level,
-      early_warning: p.predicted_risk_level === 'WATCH' || p.predicted_risk_level === 'ELEVATED' || p.predicted_risk_level === 'HIGH' || p.predicted_risk_level === 'CRITICAL',
-      expected_time_to_threshold_minutes: p.threshold_eta_mins,
-      exposure_duration_mins: p.exposure_duration_mins || 60,
-      primary_reason: p.primary_reason || 'BASELINE_PROFILE',
-      last_update: '2m ago',
-    }));
+    const list: FleetWorker[] = priorityItems.map((p) => {
+      const isElevated = p.current_risk_level === 'WATCH' || p.current_risk_level === 'ELEVATED';
+      return {
+        worker_id: p.worker_id,
+        role: p.role || 'Laborer',
+        zone_id: p.zone_id || 'ZONE-A',
+        zone_name:
+          p.zone_id === 'ZONE-A'
+            ? 'Zone A · Open Excavation'
+            : p.zone_id === 'ZONE-B'
+            ? 'Zone B · Structural Concrete'
+            : p.zone_id === 'ZONE-C'
+            ? 'Zone C · Steel Framing'
+            : 'Zone D · Shaded Staging',
+        current_risk_score: p.current_risk_score,
+        current_risk_level: p.current_risk_level,
+        predicted_risk_level: p.predicted_risk_level,
+        early_warning:
+          p.predicted_risk_level === 'WATCH' ||
+          p.predicted_risk_level === 'ELEVATED' ||
+          p.predicted_risk_level === 'HIGH' ||
+          p.predicted_risk_level === 'CRITICAL',
+        expected_time_to_threshold_minutes: p.threshold_eta_mins,
+        exposure_duration_mins: p.exposure_duration_mins || 60,
+        primary_reason: p.primary_reason || 'BASELINE_PROFILE',
+        core_temp_c: isElevated ? 38.1 : 37.3,
+        heart_rate_bpm: isElevated ? 128 : 94,
+      };
+    });
 
     if (list.length < 113) {
       const roles = ['Welder', 'Laborer', 'Carpenter', 'Electrician', 'Supervisor'];
@@ -66,6 +83,7 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
         const isWatch = i <= 7;
         const level = isWatch ? (i % 2 === 0 ? 'ELEVATED' : 'WATCH') : 'GREEN';
         const score = isWatch ? (i % 2 === 0 ? 0.48 : 0.31) : 0.18 + ((i % 10) * 0.01);
+        const exposure = 60 + (i * 2) + ((i % 5) * 11);
 
         list.push({
           worker_id: `WRK-${idNum}`,
@@ -77,22 +95,61 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
           predicted_risk_level: (isWatch ? 'WATCH' : 'GREEN') as any,
           early_warning: isWatch,
           expected_time_to_threshold_minutes: isWatch ? 12 + (i % 8) : null,
-          exposure_duration_mins: 60 + (i * 2),
+          exposure_duration_mins: exposure,
           primary_reason: isWatch ? 'HIGH_SOLAR_EXPOSURE' : 'SAFE_MARGIN',
-          last_update: '2m ago',
+          core_temp_c: isWatch ? 38.1 : 37.2 + ((i % 4) * 0.1),
+          heart_rate_bpm: isWatch ? 124 + (i % 8) : 88 + (i % 12),
         });
       }
     }
     return list;
   }, [priorityItems]);
 
-  const filteredWorkers = useMemo(() => {
-    return fullWorkersList.filter((w) => {
-      // Risk filter
-      if (riskFilter !== 'ALL' && w.current_risk_level !== riskFilter) return false;
+  // Tab counts
+  const counts = useMemo(() => {
+    const attention = fullWorkersList.filter(
+      (w) =>
+        w.current_risk_level === 'CRITICAL' ||
+        w.current_risk_level === 'HIGH' ||
+        w.current_risk_level === 'ELEVATED' ||
+        w.current_risk_level === 'WATCH'
+    ).length;
 
-      // Role filter
-      if (roleFilter !== 'ALL' && w.role !== roleFilter) return false;
+    const safe = fullWorkersList.filter((w) => w.current_risk_level === 'GREEN').length;
+
+    return {
+      all: fullWorkersList.length,
+      attention,
+      safe,
+    };
+  }, [fullWorkersList]);
+
+  // Risk rank mapping for default sorting: CRITICAL (0) -> HIGH (1) -> ELEVATED (2) -> WATCH (3) -> GREEN (4)
+  const riskRank = (level: string): number => {
+    switch (level) {
+      case 'CRITICAL':
+        return 0;
+      case 'HIGH':
+        return 1;
+      case 'ELEVATED':
+        return 2;
+      case 'WATCH':
+        return 3;
+      case 'GREEN':
+      default:
+        return 4;
+    }
+  };
+
+  // Filtered & Sorted workers
+  const filteredWorkers = useMemo(() => {
+    let result = fullWorkersList.filter((w) => {
+      // Status tab filter
+      if (statusTab === 'ATTENTION') {
+        if (w.current_risk_level === 'GREEN') return false;
+      } else if (statusTab === 'SAFE') {
+        if (w.current_risk_level !== 'GREEN') return false;
+      }
 
       // Zone filter
       if (zoneFilter !== 'ALL' && !w.zone_name.includes(zoneFilter)) return false;
@@ -108,184 +165,150 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
 
       return true;
     });
-  }, [fullWorkersList, riskFilter, roleFilter, zoneFilter, searchQuery]);
 
-  const counts = useMemo(() => {
-    return {
-      total: fullWorkersList.length,
-      green: fullWorkersList.filter((w) => w.current_risk_level === 'GREEN').length,
-      watch: fullWorkersList.filter((w) => w.current_risk_level === 'WATCH').length,
-      elevated: fullWorkersList.filter((w) => w.current_risk_level === 'ELEVATED').length,
-      high: fullWorkersList.filter((w) => w.current_risk_level === 'HIGH').length,
-      critical: fullWorkersList.filter((w) => w.current_risk_level === 'CRITICAL').length,
-    };
-  }, [fullWorkersList]);
+    // Sort
+    result.sort((a, b) => {
+      if (sortField === 'RISK') {
+        const rankDiff = riskRank(a.current_risk_level) - riskRank(b.current_risk_level);
+        if (rankDiff !== 0) return sortAsc ? -rankDiff : rankDiff;
+        return sortAsc
+          ? a.current_risk_score - b.current_risk_score
+          : b.current_risk_score - a.current_risk_score;
+      } else if (sortField === 'EXPOSURE') {
+        return sortAsc
+          ? a.exposure_duration_mins - b.exposure_duration_mins
+          : b.exposure_duration_mins - a.exposure_duration_mins;
+      } else {
+        return sortAsc
+          ? a.worker_id.localeCompare(b.worker_id)
+          : b.worker_id.localeCompare(a.worker_id);
+      }
+    });
 
-  const handleSendBulkHydration = () => {
-    setBulkAlertSent('Hydration Advisory dispatched via SMS to all 113 active workers.');
-    setTimeout(() => setBulkAlertSent(null), 4000);
+    return result;
+  }, [fullWorkersList, statusTab, zoneFilter, searchQuery, sortField, sortAsc]);
+
+  // Format exposure duration
+  const formatDuration = (mins: number): string => {
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return `${h}h ${m < 10 ? '0' : ''}${m}m`;
   };
 
-  const handleSendZoneBreak = () => {
-    setBulkAlertSent('Mandatory 15-minute shade rotation issued for Zone A (Open Excavation).');
-    setTimeout(() => setBulkAlertSent(null), 4000);
+  // Badge rendering
+  const renderRiskBadge = (level: string, score: number) => {
+    const pct = Math.round(score * 100);
+    switch (level) {
+      case 'CRITICAL':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+            Critical ({pct}%)
+          </span>
+        );
+      case 'HIGH':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-orange-500/10 text-orange-400 border border-orange-500/20">
+            High ({pct}%)
+          </span>
+        );
+      case 'ELEVATED':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+            Elevated ({pct}%)
+          </span>
+        );
+      case 'WATCH':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            Watch ({pct}%)
+          </span>
+        );
+      case 'GREEN':
+      default:
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            Safe ({pct}%)
+          </span>
+        );
+    }
+  };
+
+  const toggleSort = (field: 'RISK' | 'EXPOSURE' | 'ID') => {
+    if (sortField === field) {
+      setSortAsc(!sortAsc);
+    } else {
+      setSortField(field);
+      setSortAsc(false);
+    }
   };
 
   return (
     <div className="space-y-4">
-      {/* Top Banner: Metrics & Quick Actions */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-[#0e1424] p-4 rounded-xl border border-[#1e293b]/70">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-400"></span>
-            <h2 className="text-sm font-bold text-white tracking-wide uppercase">
-              Worker Fleet & Predictive Vitals Hub
-            </h2>
-          </div>
-          <p className="text-xs text-slate-400 mt-0.5">
-            Real-time biometric heat strain tracking, continuous exposure timers, and early breach forecasting
-          </p>
-        </div>
-
-        {/* Quick Bulk Safety Actions */}
-        <div className="flex items-center space-x-2">
+      {/* Top Filter & Control Bar */}
+      <div className="bg-[#0e1424]/80 border border-slate-800 rounded-xl p-3.5 backdrop-blur-md flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+        {/* Status Tabs */}
+        <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800">
           <button
-            onClick={handleSendBulkHydration}
-            className="px-3 py-1.5 rounded-lg bg-[#131b2e] hover:bg-[#1e293b] border border-[#1e293b] text-sky-300 text-xs font-semibold transition cursor-pointer flex items-center space-x-1.5"
+            onClick={() => setStatusTab('ATTENTION')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              statusTab === 'ATTENTION'
+                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
           >
-            <span>💧</span>
-            <span>Broadcast Hydration SMS</span>
+            <span>⚠️ Attention Required</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/25 text-amber-300 font-mono">
+              {counts.attention}
+            </span>
           </button>
+
           <button
-            onClick={handleSendZoneBreak}
-            className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition shadow-sm cursor-pointer flex items-center space-x-1.5"
+            onClick={() => setStatusTab('ALL')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              statusTab === 'ALL'
+                ? 'bg-sky-500/15 text-sky-300 border border-sky-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
           >
-            <span>⏱️</span>
-            <span>Rotate Zone A Break</span>
+            <span>All Active</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-800 text-slate-300 font-mono">
+              {counts.all}
+            </span>
+          </button>
+
+          <button
+            onClick={() => setStatusTab('SAFE')}
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-2 ${
+              statusTab === 'SAFE'
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/40'
+            }`}
+          >
+            <span>Nominal / Safe</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/25 text-emerald-300 font-mono">
+              {counts.safe}
+            </span>
           </button>
         </div>
-      </div>
 
-      {bulkAlertSent && (
-        <div className="p-2.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-semibold text-center animate-fade-in">
-          ✓ {bulkAlertSent}
-        </div>
-      )}
-
-      {/* KPI Filter Counters */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5">
-        <button
-          onClick={() => setRiskFilter('ALL')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'ALL'
-              ? 'bg-[#1e293b] border-blue-500/50 shadow-md ring-1 ring-blue-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-slate-400">Total Workforce</div>
-          <div className="text-lg font-extrabold text-white mt-0.5">{counts.total}</div>
-        </button>
-
-        <button
-          onClick={() => setRiskFilter('GREEN')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'GREEN'
-              ? 'bg-[#1e293b] border-emerald-500/50 shadow-md ring-1 ring-emerald-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-emerald-400">Safe (Green)</div>
-          <div className="text-lg font-extrabold text-emerald-400 mt-0.5">{counts.green}</div>
-        </button>
-
-        <button
-          onClick={() => setRiskFilter('WATCH')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'WATCH'
-              ? 'bg-[#1e293b] border-sky-500/50 shadow-md ring-1 ring-sky-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-sky-400">Watch (Elevated)</div>
-          <div className="text-lg font-extrabold text-sky-400 mt-0.5">{counts.watch}</div>
-        </button>
-
-        <button
-          onClick={() => setRiskFilter('ELEVATED')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'ELEVATED'
-              ? 'bg-[#1e293b] border-amber-500/50 shadow-md ring-1 ring-amber-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-amber-400">Elevated Risk</div>
-          <div className="text-lg font-extrabold text-amber-400 mt-0.5">{counts.elevated}</div>
-        </button>
-
-        <button
-          onClick={() => setRiskFilter('HIGH')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'HIGH'
-              ? 'bg-[#1e293b] border-rose-500/50 shadow-md ring-1 ring-rose-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-rose-400">High Risk</div>
-          <div className="text-lg font-extrabold text-rose-400 mt-0.5">{counts.high}</div>
-        </button>
-
-        <button
-          onClick={() => setRiskFilter('CRITICAL')}
-          className={`p-2.5 rounded-xl border text-left transition cursor-pointer ${
-            riskFilter === 'CRITICAL'
-              ? 'bg-[#1e293b] border-red-500/50 shadow-md ring-1 ring-red-500/40'
-              : 'bg-[#0f172a]/70 border-[#1e293b]/70 hover:bg-[#131b2e]'
-          }`}
-        >
-          <div className="text-[10px] uppercase font-bold text-red-500">Critical</div>
-          <div className="text-lg font-extrabold text-red-500 mt-0.5">{counts.critical}</div>
-        </button>
-      </div>
-
-      {/* Filter & Search Toolbar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-[#0e1424] p-3 rounded-xl border border-[#1e293b]/70">
-        {/* Search Input */}
-        <div className="relative flex-1 max-w-md">
-          <input
-            type="text"
-            placeholder="Search by worker ID (e.g. WRK-0043), role, or zone..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full bg-[#111828] border border-[#1e293b] rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <svg
-            className="w-4 h-4 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-          </svg>
-        </div>
-
-        {/* Dropdowns */}
-        <div className="flex items-center space-x-2">
-          {/* Trade / Role Dropdown */}
-          <div className="relative">
-            <select
-              value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value)}
-              className="bg-[#111828] border border-[#1e293b] text-slate-300 text-xs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer pr-6 appearance-none font-medium"
+        {/* Search Input & Zone Filter */}
+        <div className="flex items-center space-x-2.5">
+          {/* Search Box */}
+          <div className="relative flex-1 sm:w-64">
+            <input
+              type="text"
+              placeholder="Search ID (e.g. WRK-0042) or role..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-[#111828] border border-slate-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-sky-500 font-medium"
+            />
+            <svg
+              className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              <option value="ALL">All Trades</option>
-              <option value="Welder">Welder</option>
-              <option value="Laborer">Laborer</option>
-              <option value="Carpenter">Carpenter</option>
-              <option value="Electrician">Electrician</option>
-              <option value="Supervisor">Supervisor</option>
-            </select>
-            <svg className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
             </svg>
           </div>
 
@@ -294,7 +317,7 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
             <select
               value={zoneFilter}
               onChange={(e) => setZoneFilter(e.target.value)}
-              className="bg-[#111828] border border-[#1e293b] text-slate-300 text-xs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none cursor-pointer pr-6 appearance-none font-medium"
+              className="bg-[#111828] border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:ring-1 focus:ring-sky-500 outline-none cursor-pointer pr-7 appearance-none font-medium"
             >
               <option value="ALL">All Zones</option>
               <option value="Zone A">Zone A (Excavation)</option>
@@ -302,110 +325,165 @@ export const WorkersFleetView: React.FC<WorkersFleetViewProps> = ({
               <option value="Zone C">Zone C (Steel)</option>
               <option value="Zone D">Zone D (Shaded)</option>
             </select>
-            <svg className="w-3 h-3 text-slate-400 absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg
+              className="w-3 h-3 text-slate-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </div>
         </div>
       </div>
 
-      {/* Worker Fleet Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-        {filteredWorkers.map((worker) => {
-          const isSelected = selectedWorkerId === worker.worker_id;
-          const isElevated = worker.current_risk_level === 'WATCH' || worker.current_risk_level === 'ELEVATED';
-
-          return (
-            <div
-              key={worker.worker_id}
-              className={`bg-[#0f172a] rounded-xl border p-3.5 flex flex-col justify-between transition ${
-                isSelected
-                  ? 'border-blue-500 ring-1 ring-blue-500 shadow-lg shadow-blue-500/20'
-                  : 'border-[#1e293b] hover:border-[#334155]'
-              }`}
-            >
-              <div>
-                {/* Card Top: Worker ID, Role, and Risk Score Pill */}
-                <div className="flex items-start justify-between">
-                  <div className="flex items-center space-x-2.5">
-                    <div className="w-9 h-9 rounded-lg bg-[#131b2e] border border-[#1e293b] flex items-center justify-center text-slate-300">
-                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <div className="text-xs font-bold text-white flex items-center space-x-1.5">
-                        <span>{worker.worker_id}</span>
-                        <span className="text-[10px] font-normal text-slate-400">({worker.role})</span>
-                      </div>
-                      <div className="text-[10px] text-slate-400 truncate max-w-[170px] mt-0.5">
-                        📍 {worker.zone_name}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Current Risk Badge */}
-                  <div className="flex flex-col items-end space-y-1">
-                    <span
-                      className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                        worker.current_risk_level === 'GREEN'
-                          ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                          : worker.current_risk_level === 'WATCH'
-                          ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                          : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                      }`}
-                    >
-                      {worker.current_risk_level} {Math.round(worker.current_risk_score * 100)}%
-                    </span>
-
-                    {worker.early_warning && (
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                        Pred WATCH ({worker.expected_time_to_threshold_minutes || 12}m)
-                      </span>
+      {/* High-Density Data Table */}
+      <div className="bg-[#0e1424]/80 border border-slate-800 rounded-xl overflow-hidden backdrop-blur-md shadow-lg">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-slate-800 bg-slate-900/60 text-[11px] font-semibold uppercase tracking-wider text-slate-400 select-none">
+                <th
+                  onClick={() => toggleSort('ID')}
+                  className="py-3 px-4 cursor-pointer hover:text-slate-200"
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Worker ID & Role</span>
+                    {sortField === 'ID' && (
+                      <span className="text-sky-400">{sortAsc ? '▲' : '▼'}</span>
                     )}
                   </div>
-                </div>
-
-                {/* Biometric & Exposure Row */}
-                <div className="grid grid-cols-3 gap-1.5 mt-3 pt-2.5 border-t border-[#1e293b]/60 text-center text-xs">
-                  <div className="bg-[#131b2e] p-1.5 rounded-lg border border-[#1e293b]/40">
-                    <div className="text-[9px] text-slate-400 uppercase">Exposure</div>
-                    <div className="text-[11px] font-bold text-slate-200">{worker.exposure_duration_mins}m</div>
-                  </div>
-                  <div className="bg-[#131b2e] p-1.5 rounded-lg border border-[#1e293b]/40">
-                    <div className="text-[9px] text-slate-400 uppercase">Est. Heart Rate</div>
-                    <div className="text-[11px] font-bold text-rose-400">{isElevated ? '128 bpm' : '94 bpm'}</div>
-                  </div>
-                  <div className="bg-[#131b2e] p-1.5 rounded-lg border border-[#1e293b]/40">
-                    <div className="text-[9px] text-slate-400 uppercase">Core Temp</div>
-                    <div className="text-[11px] font-bold text-amber-300">{isElevated ? '38.1°C' : '37.3°C'}</div>
-                  </div>
-                </div>
-
-                {/* Primary Risk Factors */}
-                <div className="mt-2.5 flex flex-wrap gap-1">
-                  <span className="px-1.5 py-0.5 rounded bg-[#131b2e] text-[9px] font-medium text-slate-400 border border-[#1e293b]">
-                    {worker.primary_reason || 'BASELINE_PROFILE'}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded bg-[#131b2e] text-[9px] font-medium text-slate-400 border border-[#1e293b]">
-                    CHANNEL: SMS
-                  </span>
-                </div>
-              </div>
-
-              {/* Card Action Button */}
-              <div className="mt-3 pt-2.5 border-t border-[#1e293b]/60 flex items-center justify-between">
-                <span className="text-[10px] text-slate-500">Updated {worker.last_update}</span>
-                <button
-                  onClick={() => onSelectWorker(worker.worker_id)}
-                  className="px-3 py-1 rounded bg-[#131b2e] hover:bg-blue-600 hover:text-white text-slate-200 text-[11px] font-bold transition border border-[#1e293b] cursor-pointer"
+                </th>
+                <th className="py-3 px-4">Current Zone</th>
+                <th
+                  onClick={() => toggleSort('EXPOSURE')}
+                  className="py-3 px-4 cursor-pointer hover:text-slate-200"
                 >
-                  Inspect Vitals →
-                </button>
-              </div>
-            </div>
-          );
-        })}
+                  <div className="flex items-center space-x-1">
+                    <span>Exposure Duration</span>
+                    {sortField === 'EXPOSURE' && (
+                      <span className="text-sky-400">{sortAsc ? '▲' : '▼'}</span>
+                    )}
+                  </div>
+                </th>
+                <th
+                  onClick={() => toggleSort('RISK')}
+                  className="py-3 px-4 cursor-pointer hover:text-slate-200"
+                >
+                  <div className="flex items-center space-x-1">
+                    <span>Heat Risk State</span>
+                    {sortField === 'RISK' && (
+                      <span className="text-sky-400">{sortAsc ? '▲' : '▼'}</span>
+                    )}
+                  </div>
+                </th>
+                <th className="py-3 px-4">Trajectory / 30m Forecast</th>
+                <th className="py-3 px-4">Key Telemetry (Temp / HR)</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/60 text-xs">
+              {filteredWorkers.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-slate-500 font-medium">
+                    No workers matching the selected criteria.
+                  </td>
+                </tr>
+              ) : (
+                filteredWorkers.map((worker) => {
+                  const isSelected = selectedWorkerId === worker.worker_id;
+
+                  return (
+                    <tr
+                      key={worker.worker_id}
+                      onClick={() => onSelectWorker(worker.worker_id)}
+                      className={`hover:bg-slate-800/40 cursor-pointer transition-colors ${
+                        isSelected ? 'bg-sky-500/10' : ''
+                      }`}
+                    >
+                      {/* Worker ID & Role */}
+                      <td className="py-3 px-4">
+                        <div className="font-bold font-mono text-slate-200 leading-tight">
+                          {worker.worker_id}
+                        </div>
+                        <div className="text-[11px] text-slate-400 leading-tight mt-0.5">
+                          {worker.role}
+                        </div>
+                      </td>
+
+                      {/* Current Zone */}
+                      <td className="py-3 px-4 text-slate-300">
+                        <span className="truncate max-w-[200px] inline-block">
+                          {worker.zone_name}
+                        </span>
+                      </td>
+
+                      {/* Exposure Duration */}
+                      <td className="py-3 px-4 font-mono text-slate-300">
+                        {formatDuration(worker.exposure_duration_mins)}
+                      </td>
+
+                      {/* Heat Risk State */}
+                      <td className="py-3 px-4">
+                        {renderRiskBadge(worker.current_risk_level, worker.current_risk_score)}
+                      </td>
+
+                      {/* Trajectory / 30m Forecast */}
+                      <td className="py-3 px-4">
+                        {worker.early_warning ? (
+                          <span className="text-amber-400 font-medium flex items-center space-x-1">
+                            <span>▲</span>
+                            <span>Watch in {worker.expected_time_to_threshold_minutes || 12}m</span>
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-medium flex items-center space-x-1">
+                            <span>●</span>
+                            <span>Stable</span>
+                          </span>
+                        )}
+                      </td>
+
+                      {/* Key Telemetry (Core Temp / Heart Rate) */}
+                      <td className="py-3 px-4 font-mono text-slate-300">
+                        <span className={worker.core_temp_c >= 38.0 ? 'text-amber-400' : 'text-slate-300'}>
+                          {worker.core_temp_c.toFixed(1)}°C
+                        </span>
+                        <span className="text-slate-500 mx-1.5">/</span>
+                        <span className={worker.heart_rate_bpm >= 120 ? 'text-rose-400' : 'text-slate-300'}>
+                          {worker.heart_rate_bpm} bpm
+                        </span>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectWorker(worker.worker_id);
+                          }}
+                          className="px-3 py-1 rounded-md bg-slate-800/80 hover:bg-sky-600 text-slate-200 hover:text-white text-xs font-semibold transition border border-slate-700/80 cursor-pointer"
+                        >
+                          Inspect
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Table Footer */}
+        <div className="p-3 bg-slate-900/40 border-t border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+          <span>
+            Showing <span className="font-bold text-slate-200 font-mono">{filteredWorkers.length}</span> of{' '}
+            <span className="font-bold text-slate-200 font-mono">{fullWorkersList.length}</span> active workers
+          </span>
+          <span className="text-slate-500">
+            Click any row to inspect physiological vitals and audit history
+          </span>
+        </div>
       </div>
     </div>
   );
