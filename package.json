@@ -14,7 +14,7 @@
     "dev:api": "npm run dev --workspace=@sentinel/api",
     "dev:dashboard": "npm run dev --workspace=@sentinel/dashboard",
     "dev:risk": "powershell -Command \"if (Test-Path .venv/Scripts/python.exe) { .venv/Scripts/python.exe -m uvicorn app.main:app --app-dir apps/risk-service --port 8000 --reload } else { uvicorn app.main:app --app-dir apps/risk-service --port 8000 --reload }\"",
-    "build": "npm run build --workspace=@sentinel/schemas && npm run build --workspace=@sentinel/policy && npm run build --workspace=@sentinel/simulation && npm run build --workspace=@sentinel/fortyguard-provider && npm run build --workspace=@sentinel/risk-engine && npm run build --workspace=@sentinel/prediction-engine && npm run build --workspace=@sentinel/action-engine && npm run build --workspace=@sentinel/api && npm run build --workspace=@sentinel/dashboard",
+    "build": "npm run build --workspace=@sentinel/schemas && npm run build --workspace=@sentinel/policy && npm run build --workspace=@sentinel/simulation && npm run build --workspace=@sentinel/hydration-engine && npm run build --workspace=@sentinel/scheduling-engine && npm run build --workspace=@sentinel/fortyguard-provider && npm run build --workspace=@sentinel/risk-engine && npm run build --workspace=@sentinel/prediction-engine && npm run build --workspace=@sentinel/action-engine && npm run build --workspace=@sentinel/api && npm run build --workspace=@sentinel/dashboard",
     "test": "vitest run",
     "test:workers": "vitest run tests/unit/workers-generator.test.ts",
     "test:policy": "vitest run tests/unit/policy-engine.test.ts",

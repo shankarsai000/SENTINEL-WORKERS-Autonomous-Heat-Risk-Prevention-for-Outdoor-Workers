@@ -1,21 +1,4 @@
-import React, { useState } from 'react';
-import {
-  Sun,
-  Droplets,
-  Wind,
-  ShieldAlert,
-  Thermometer,
-  Radio,
-  Layers,
-  Users,
-  Flame,
-  Snowflake,
-  Sparkles,
-  CheckCircle2,
-  Maximize2,
-  Minimize2,
-  RefreshCw,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { Incident } from '../../types.js';
 
 interface SpatialMapViewProps {
@@ -28,585 +11,437 @@ interface SpatialMapViewProps {
   onSelectIncident?: (incidentId: string) => void;
 }
 
+interface CoolingStation {
+  station_id: string;
+  site_id: string;
+  zone_id: string;
+  name: string;
+  type: 'shade' | 'water' | 'mist' | 'ac_trailer';
+  latitude: number;
+  longitude: number;
+  capacity: number;
+  current_occupancy: number;
+  status: 'AVAILABLE' | 'NEAR_CAPACITY' | 'FULL' | 'OFFLINE';
+}
+
 export const SpatialMapView: React.FC<SpatialMapViewProps> = ({
   selectedWorkerId,
   onSelectWorker = () => {},
 }) => {
   const [selectedZone, setSelectedZone] = useState<string>('ZONE-A');
-  const [layerThermal, setLayerThermal] = useState(true);
-  const [layerDensity, setLayerDensity] = useState(true);
-  const [layerCooling, setLayerCooling] = useState(true);
-  const [hoveredDot, setHoveredDot] = useState<string | null>(null);
-  const [coolingActionSent, setCoolingActionSent] = useState<string | null>(null);
+  const [showWorkers, setShowWorkers] = useState<boolean>(true);
+  const [showCooling, setShowCooling] = useState<boolean>(true);
+  const [showThermal, setShowThermal] = useState<boolean>(true);
+  const [showMedical, setShowMedical] = useState<boolean>(true);
+  const [coolingStations, setCoolingStations] = useState<CoolingStation[]>([]);
+  const [selectedStation, setSelectedStation] = useState<CoolingStation | null>(null);
+
+  // Fetch cooling stations from API
+  useEffect(() => {
+    fetch('/api/cooling/stations?site_id=PHX-SITE-01')
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && data.stations) {
+          setCoolingStations(data.stations);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   const zones = [
-    {
-      id: 'ZONE-A',
-      name: 'Zone A: Open Excavation',
-      activity: 'High Activity',
-      temp: '44.2°C',
-      humidity: '24%',
-      wetBulb: '28.4°C',
-      solar: '940 W/m²',
-      workersTotal: 24,
-      workerCounts: { high: 8, elevated: 10, watch: 4, green: 2 },
-      riskLevel: 'HIGH',
-      riskColor: 'rose',
-      coolingStations: 1,
-      status: 'Critical Solar Exposure',
-    },
-    {
-      id: 'ZONE-B',
-      name: 'Zone B: Structural Concrete',
-      activity: 'Heavy Curing',
-      temp: '38.6°C',
-      humidity: '29%',
-      wetBulb: '25.1°C',
-      solar: '620 W/m²',
-      workersTotal: 38,
-      workerCounts: { high: 0, elevated: 4, watch: 8, green: 26 },
-      riskLevel: 'ELEVATED',
-      riskColor: 'amber',
-      coolingStations: 2,
-      status: 'Active Radiative Heat',
-    },
-    {
-      id: 'ZONE-C',
-      name: 'Zone C: Steel Framing',
-      activity: 'Assembly',
-      temp: '36.8°C',
-      humidity: '31%',
-      wetBulb: '24.2°C',
-      solar: '510 W/m²',
-      workersTotal: 31,
-      workerCounts: { high: 0, elevated: 0, watch: 6, green: 25 },
-      riskLevel: 'WATCH',
-      riskColor: 'sky',
-      coolingStations: 1,
-      status: 'Moderate Reflective Load',
-    },
-    {
-      id: 'ZONE-D',
-      name: 'Zone D: Shaded Staging Area',
-      activity: 'Break & Logistics',
-      temp: '30.4°C',
-      humidity: '38%',
-      wetBulb: '20.8°C',
-      solar: '110 W/m²',
-      workersTotal: 20,
-      workerCounts: { high: 0, elevated: 0, watch: 0, green: 20 },
-      riskLevel: 'GREEN',
-      riskColor: 'emerald',
-      coolingStations: 4,
-      status: 'Safe Thermal Margin',
-    },
+    { id: 'ZONE-A', name: 'Zone A', desc: 'Open Excavation', temp: '44.2°C', workers: 24, risk: 'HIGH', color: 'red' },
+    { id: 'ZONE-B', name: 'Zone B', desc: 'Structural Concrete', temp: '38.6°C', workers: 38, risk: 'ELEVATED', color: 'amber' },
+    { id: 'ZONE-C', name: 'Zone C', desc: 'Steel Framing', temp: '36.8°C', workers: 31, risk: 'WATCH', color: 'sky' },
+    { id: 'ZONE-D', name: 'Zone D', desc: 'Shaded Staging', temp: '30.4°C', workers: 20, risk: 'SAFE', color: 'emerald' },
   ];
 
-  // Worker scatter coordinates
+  // Worker dots per zone
   const zoneADots = [
-    { id: 'WRK-0043', x: 28, y: 28, color: '#f97316' },
-    { id: 'WRK-0059', x: 31, y: 27, color: '#f59e0b' },
-    { id: 'WRK-0188', x: 34, y: 29, color: '#f97316' },
-    { id: 'WRK-0219', x: 27, y: 32, color: '#f59e0b' },
-    { id: 'WRK-0284', x: 30, y: 31, color: '#f97316' },
-    { id: 'WRK-0367', x: 33, y: 33, color: '#f59e0b' },
-    { id: 'WRK-0475', x: 36, y: 31, color: '#f97316' },
-    { id: 'WRK-0108', x: 26, y: 36, color: '#10b981' },
-    { id: 'WRK-0109', x: 29, y: 35, color: '#f59e0b' },
-    { id: 'WRK-0110', x: 32, y: 37, color: '#f97316' },
-    { id: 'WRK-0111', x: 35, y: 35, color: '#10b981' },
-    { id: 'WRK-0112', x: 38, y: 36, color: '#f59e0b' },
-    { id: 'WRK-0113', x: 27, y: 40, color: '#f59e0b' },
-    { id: 'WRK-0114', x: 30, y: 41, color: '#f97316' },
-    { id: 'WRK-0115', x: 33, y: 39, color: '#10b981' },
-    { id: 'WRK-0116', x: 36, y: 41, color: '#f59e0b' },
-    { id: 'WRK-0117', x: 29, y: 45, color: '#10b981' },
-    { id: 'WRK-0118', x: 32, y: 44, color: '#f97316' },
-    { id: 'WRK-0119', x: 35, y: 45, color: '#10b981' },
+    { id: 'WRK-0043', x: 28, y: 28, c: '#f97316' }, { id: 'WRK-0059', x: 31, y: 27, c: '#f59e0b' },
+    { id: 'WRK-0188', x: 34, y: 29, c: '#f97316' }, { id: 'WRK-0219', x: 27, y: 32, c: '#f59e0b' },
+    { id: 'WRK-0284', x: 30, y: 31, c: '#f97316' }, { id: 'WRK-0367', x: 33, y: 33, c: '#f59e0b' },
+    { id: 'WRK-0475', x: 36, y: 31, c: '#f97316' }, { id: 'WRK-0108', x: 26, y: 36, c: '#10b981' },
+    { id: 'WRK-0109', x: 29, y: 35, c: '#f59e0b' }, { id: 'WRK-0110', x: 32, y: 37, c: '#f97316' },
+    { id: 'WRK-0111', x: 35, y: 35, c: '#10b981' }, { id: 'WRK-0112', x: 38, y: 36, c: '#f59e0b' },
+    { id: 'WRK-0113', x: 27, y: 40, c: '#f59e0b' }, { id: 'WRK-0114', x: 30, y: 41, c: '#f97316' },
+    { id: 'WRK-0115', x: 33, y: 39, c: '#10b981' }, { id: 'WRK-0116', x: 36, y: 41, c: '#f59e0b' },
+    { id: 'WRK-0117', x: 29, y: 45, c: '#10b981' }, { id: 'WRK-0118', x: 32, y: 44, c: '#f97316' },
+    { id: 'WRK-0119', x: 35, y: 45, c: '#10b981' },
   ];
-
   const zoneBDots = [
-    { id: 'WRK-0201', x: 70, y: 24, color: '#10b981' },
-    { id: 'WRK-0202', x: 74, y: 23, color: '#10b981' },
-    { id: 'WRK-0203', x: 77, y: 25, color: '#10b981' },
-    { id: 'WRK-0204', x: 68, y: 27, color: '#10b981' },
-    { id: 'WRK-0205', x: 72, y: 28, color: '#f59e0b' },
-    { id: 'WRK-0206', x: 76, y: 27, color: '#10b981' },
-    { id: 'WRK-0207', x: 80, y: 29, color: '#10b981' },
-    { id: 'WRK-0208', x: 69, y: 32, color: '#10b981' },
-    { id: 'WRK-0209', x: 73, y: 32, color: '#f59e0b' },
-    { id: 'WRK-0210', x: 77, y: 33, color: '#10b981' },
-    { id: 'WRK-0211', x: 71, y: 36, color: '#10b981' },
-    { id: 'WRK-0212', x: 75, y: 37, color: '#10b981' },
-    { id: 'WRK-0213', x: 78, y: 36, color: '#10b981' },
+    { id: 'WRK-0201', x: 70, y: 24, c: '#10b981' }, { id: 'WRK-0202', x: 74, y: 23, c: '#10b981' },
+    { id: 'WRK-0203', x: 77, y: 25, c: '#10b981' }, { id: 'WRK-0204', x: 68, y: 27, c: '#10b981' },
+    { id: 'WRK-0205', x: 72, y: 28, c: '#f59e0b' }, { id: 'WRK-0206', x: 76, y: 27, c: '#10b981' },
+    { id: 'WRK-0207', x: 80, y: 29, c: '#10b981' }, { id: 'WRK-0208', x: 69, y: 32, c: '#10b981' },
+    { id: 'WRK-0209', x: 73, y: 32, c: '#f59e0b' }, { id: 'WRK-0210', x: 77, y: 33, c: '#10b981' },
   ];
-
   const zoneCDots = [
-    { id: 'WRK-0301', x: 53, y: 55, color: '#38bdf8' },
-    { id: 'WRK-0302', x: 57, y: 54, color: '#10b981' },
-    { id: 'WRK-0303', x: 55, y: 58, color: '#10b981' },
-    { id: 'WRK-0304', x: 58, y: 59, color: '#38bdf8' },
-    { id: 'WRK-0305', x: 54, y: 62, color: '#10b981' },
-    { id: 'WRK-0306', x: 57, y: 63, color: '#10b981' },
+    { id: 'WRK-0301', x: 53, y: 55, c: '#38bdf8' }, { id: 'WRK-0302', x: 57, y: 54, c: '#10b981' },
+    { id: 'WRK-0303', x: 55, y: 58, c: '#10b981' }, { id: 'WRK-0304', x: 58, y: 59, c: '#38bdf8' },
+    { id: 'WRK-0305', x: 54, y: 62, c: '#10b981' }, { id: 'WRK-0306', x: 57, y: 63, c: '#10b981' },
   ];
-
   const zoneDDots = [
-    { id: 'WRK-0401', x: 73, y: 55, color: '#10b981' },
-    { id: 'WRK-0402', x: 77, y: 54, color: '#10b981' },
-    { id: 'WRK-0403', x: 75, y: 58, color: '#10b981' },
-    { id: 'WRK-0404', x: 78, y: 59, color: '#10b981' },
-    { id: 'WRK-0405', x: 74, y: 62, color: '#10b981' },
-    { id: 'WRK-0406', x: 77, y: 63, color: '#10b981' },
+    { id: 'WRK-0401', x: 73, y: 55, c: '#10b981' }, { id: 'WRK-0402', x: 77, y: 54, c: '#10b981' },
+    { id: 'WRK-0403', x: 75, y: 58, c: '#10b981' }, { id: 'WRK-0404', x: 78, y: 59, c: '#10b981' },
+    { id: 'WRK-0405', x: 74, y: 62, c: '#10b981' }, { id: 'WRK-0406', x: 77, y: 63, c: '#10b981' },
   ];
 
-  const handleDeployCooling = (zoneName: string) => {
-    setCoolingActionSent(zoneName);
-    setTimeout(() => setCoolingActionSent(null), 3000);
+  // Cooling station coordinate mappings on SVG viewport [0-100, 0-68]
+  const stationSVGCoords = [
+    { id: 'CS-001', x: 23, y: 24, type: 'shade', label: 'A Shade' },
+    { id: 'CS-002', x: 39, y: 26, type: 'water', label: 'A Water' },
+    { id: 'CS-003', x: 25, y: 46, type: 'mist', label: 'A Mist' },
+    { id: 'CS-004', x: 38, y: 44, type: 'ac_trailer', label: 'A AC Trailer' },
+    { id: 'CS-005', x: 65, y: 20, type: 'shade', label: 'B Shade' },
+    { id: 'CS-006', x: 82, y: 22, type: 'water', label: 'B Water' },
+    { id: 'CS-007', x: 66, y: 38, type: 'mist', label: 'B Mist' },
+    { id: 'CS-008', x: 83, y: 37, type: 'ac_trailer', label: 'B AC Trailer' },
+    { id: 'CS-009', x: 49, y: 52, type: 'shade', label: 'C Shade' },
+    { id: 'CS-010', x: 62, y: 53, type: 'water', label: 'C Water' },
+    { id: 'CS-011', x: 50, y: 65, type: 'mist', label: 'C Mist' },
+    { id: 'CS-012', x: 61, y: 65, type: 'ac_trailer', label: 'C AC Trailer' },
+    { id: 'CS-013', x: 70, y: 52, type: 'shade', label: 'D Shade' },
+    { id: 'CS-014', x: 82, y: 53, type: 'water', label: 'D Water' },
+    { id: 'CS-015', x: 71, y: 65, type: 'mist', label: 'D Mist' },
+    { id: 'CS-016', x: 82, y: 65, type: 'ac_trailer', label: 'D AC Trailer' },
+  ];
+
+  const riskBadge = (r: string) => {
+    const c: Record<string, string> = {
+      HIGH: 'bg-red-500/15 text-red-400 border-red-500/30',
+      ELEVATED: 'bg-amber-500/15 text-amber-400 border-amber-500/30',
+      WATCH: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
+      SAFE: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+    };
+    return c[r] || c['SAFE'];
+  };
+
+  const getStationTypeIcon = (type: string) => {
+    switch (type) {
+      case 'water': return '💧';
+      case 'mist': return '💨';
+      case 'ac_trailer': return '❄️';
+      default: return '⛺';
+    }
   };
 
   return (
-    <div className="space-y-5">
-      {/* Toast Feedback */}
-      {coolingActionSent && (
-        <div className="p-3 rounded-xl bg-cyan-500/20 border border-cyan-500/40 text-cyan-300 text-xs font-semibold flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
-          <span>Dispatched Mobile Misting Unit to {coolingActionSent}.</span>
+    <div className="space-y-6 w-full">
+      {/* Top Header & Layer Toggles */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-bold text-white">Spatial Risk Heatmap & Cooling Studio</h1>
+          <p className="text-xs text-slate-400 mt-0.5">Live vector map telemetry, microclimate thermal zones & cooling stations</p>
         </div>
-      )}
+        
+        {/* Layer Toggles & Status Pill */}
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setShowWorkers(!showWorkers)}
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              showWorkers ? 'bg-sky-500/20 text-sky-300 border-sky-500/40 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            👷 Workers {showWorkers ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={() => setShowCooling(!showCooling)}
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              showCooling ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            ❄️ Cooling {showCooling ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={() => setShowThermal(!showThermal)}
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              showThermal ? 'bg-orange-500/20 text-orange-300 border-orange-500/40 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            🔥 Isotherms {showThermal ? 'ON' : 'OFF'}
+          </button>
+          <button
+            onClick={() => setShowMedical(!showMedical)}
+            className={`px-2.5 py-1 rounded-xl text-xs font-semibold border transition cursor-pointer ${
+              showMedical ? 'bg-red-500/20 text-red-300 border-red-500/40 shadow-sm' : 'bg-slate-900 text-slate-500 border-slate-800'
+            }`}
+          >
+            🚑 Medical {showMedical ? 'ON' : 'OFF'}
+          </button>
+          <span className="text-xs font-semibold px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            FortyGuard Live: 35.0°C
+          </span>
+        </div>
+      </div>
 
-      {/* Two-Column Split Studio */}
-      <div className="grid grid-cols-12 gap-6 items-start">
-        {/* Left Studio Canvas (8 cols) */}
-        <div className="col-span-12 lg:col-span-8 bg-[#0a0f1d] border border-slate-800 rounded-2xl relative overflow-hidden shadow-2xl p-4 flex flex-col justify-between min-h-[580px]">
-          {/* Top Controls Overlay inside Canvas */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800/70 z-10">
-            {/* Top-Left: Layer Toggles */}
-            <div className="flex items-center gap-1.5 bg-slate-900/90 p-1 rounded-lg border border-slate-800">
-              <button
-                onClick={() => setLayerThermal(!layerThermal)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
-                  layerThermal
-                    ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Flame className="w-3.5 h-3.5" />
-                <span>Thermal Isotherms</span>
-              </button>
-
-              <button
-                onClick={() => setLayerDensity(!layerDensity)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
-                  layerDensity
-                    ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Users className="w-3.5 h-3.5" />
-                <span>Worker Density</span>
-              </button>
-
-              <button
-                onClick={() => setLayerCooling(!layerCooling)}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
-                  layerCooling
-                    ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
-                    : 'text-slate-500 hover:text-slate-300'
-                }`}
-              >
-                <Snowflake className="w-3.5 h-3.5" />
-                <span>Cooling Stations</span>
-              </button>
-            </div>
-
-            {/* Top-Right: FortyGuard Live Ingestion Pill */}
-            <div className="flex items-center gap-2 px-3 py-1 rounded-full bg-slate-900/90 border border-slate-800 text-[11px] font-mono text-slate-300">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0"></span>
-              <span>FortyGuard Live Feed: <strong className="text-white">42.3°C Ambient</strong> | Freshness: <strong className="text-emerald-400">12s</strong></span>
-            </div>
-          </div>
-
-          {/* Interactive Vector Blueprint SVG Canvas */}
-          <div className="relative my-auto w-full flex items-center justify-center p-2">
-            <svg
-              viewBox="0 0 100 68"
-              className="w-full h-full max-h-[440px] select-none"
-              preserveAspectRatio="xMidYMid meet"
-            >
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Studio Canvas: 8 cols on desktop */}
+        <div className="lg:col-span-8 bg-slate-900 rounded-2xl border border-slate-800/60 overflow-hidden shadow-xl relative">
+          <div className="p-4 sm:p-6">
+            <svg viewBox="0 0 100 68" className="w-full h-auto max-h-[540px]" preserveAspectRatio="xMidYMid meet">
               <defs>
-                {/* Blueprint Grid */}
-                <pattern id="studioMapGrid" width="5" height="5" patternUnits="userSpaceOnUse">
-                  <path d="M 5 0 L 0 0 0 5" fill="none" stroke="rgba(30, 41, 59, 0.4)" strokeWidth="0.25" />
+                <pattern id="g" width="5" height="5" patternUnits="userSpaceOnUse">
+                  <path d="M 5 0 L 0 0 0 5" fill="none" stroke="rgba(51,65,85,0.3)" strokeWidth="0.25" />
                 </pattern>
-
-                {/* Zone A Thermal Gradient */}
-                <radialGradient id="heatGlowZoneA" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="rgba(239, 68, 68, 0.35)" />
-                  <stop offset="50%" stopColor="rgba(249, 115, 22, 0.18)" />
-                  <stop offset="85%" stopColor="rgba(249, 115, 22, 0.04)" />
-                  <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
+                <radialGradient id="ha" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="rgba(239,68,68,0.25)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0)" />
                 </radialGradient>
-
-                {/* Zone Cool Radial Gradient */}
-                <radialGradient id="coolGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="rgba(56, 189, 248, 0.10)" />
-                  <stop offset="80%" stopColor="rgba(56, 189, 248, 0.02)" />
-                  <stop offset="100%" stopColor="rgba(0, 0, 0, 0)" />
+                <radialGradient id="hb" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="rgba(245,158,11,0.20)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+                </radialGradient>
+                <radialGradient id="hc" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="rgba(56,189,248,0.12)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0)" />
+                </radialGradient>
+                <radialGradient id="hd" cx="50%" cy="50%" r="50%">
+                  <stop offset="0%" stopColor="rgba(16,185,129,0.15)" />
+                  <stop offset="100%" stopColor="rgba(0,0,0,0)" />
                 </radialGradient>
               </defs>
+              <rect width="100" height="68" fill="url(#g)" />
 
-              {/* Grid Background */}
-              <rect width="100" height="68" fill="url(#studioMapGrid)" />
+              {/* Zone A */}
+              <g onClick={() => setSelectedZone('ZONE-A')} className="cursor-pointer" opacity={selectedZone === 'ZONE-A' ? 1 : 0.65}>
+                {showThermal && <circle cx="32" cy="36" r="18" fill="url(#ha)" />}
+                <circle cx="32" cy="36" r="18" fill="none" stroke={selectedZone === 'ZONE-A' ? '#ef4444' : 'rgba(239,68,68,0.4)'} strokeWidth={selectedZone === 'ZONE-A' ? 0.8 : 0.5} strokeDasharray="1.5,1" />
+                <text x="32" y="22" textAnchor="middle" fill="#fff" fontSize="2.5" fontWeight="bold">Zone A</text>
+                <text x="32" y="25" textAnchor="middle" fill="#94a3b8" fontSize="1.6">Open Excavation (44.2°C)</text>
+                {showWorkers && zoneADots.map(d => (
+                  <circle key={d.id} cx={d.x} cy={d.y} r={selectedWorkerId === d.id ? 1.4 : 0.85} fill={d.c}
+                    stroke={selectedWorkerId === d.id ? '#fff' : 'rgba(0,0,0,0.4)'} strokeWidth={selectedWorkerId === d.id ? 0.4 : 0.15}
+                    className="cursor-pointer" onClick={(e) => { e.stopPropagation(); onSelectWorker(d.id); }} />
+                ))}
+              </g>
 
-              {/* --- Zone A: Open Excavation --- */}
-              <g
-                onClick={() => setSelectedZone('ZONE-A')}
-                className="cursor-pointer transition-opacity"
-                opacity={selectedZone === 'ZONE-A' ? 1 : 0.75}
-              >
-                {layerThermal && <circle cx="32" cy="36" r="18" fill="url(#heatGlowZoneA)" />}
-                <circle
-                  cx="32"
-                  cy="36"
-                  r="18"
-                  fill="none"
-                  stroke={selectedZone === 'ZONE-A' ? '#f43f5e' : 'rgba(239, 68, 68, 0.6)'}
-                  strokeWidth={selectedZone === 'ZONE-A' ? 1.0 : 0.7}
-                  strokeDasharray="1.5,1"
-                />
-                <text x="32" y="21" textAnchor="middle" fill="#ffffff" fontSize="2.5" fontWeight="bold">
-                  Zone A
-                </text>
-                <text x="32" y="24" textAnchor="middle" fill="#94a3b8" fontSize="1.8">
-                  Open Excavation
-                </text>
+              {/* Zone B */}
+              <g onClick={() => setSelectedZone('ZONE-B')} className="cursor-pointer" opacity={selectedZone === 'ZONE-B' ? 1 : 0.65}>
+                {showThermal && <circle cx="74" cy="30" r="15" fill="url(#hb)" />}
+                <circle cx="74" cy="30" r="15" fill="none" stroke={selectedZone === 'ZONE-B' ? '#f59e0b' : 'rgba(245,158,11,0.3)'} strokeWidth={selectedZone === 'ZONE-B' ? 0.8 : 0.5} strokeDasharray="2,1.5" />
+                <text x="74" y="18" textAnchor="middle" fill="#fff" fontSize="2.4" fontWeight="bold">Zone B</text>
+                <text x="74" y="21" textAnchor="middle" fill="#94a3b8" fontSize="1.5">Structural Concrete (38.6°C)</text>
+                {showWorkers && zoneBDots.map(d => (
+                  <circle key={d.id} cx={d.x} cy={d.y} r={0.85} fill={d.c} stroke="rgba(0,0,0,0.4)" strokeWidth={0.15}
+                    className="cursor-pointer" onClick={(e) => { e.stopPropagation(); onSelectWorker(d.id); }} />
+                ))}
+              </g>
 
-                {/* Zone A Risk Badge */}
-                <g transform="translate(23.5, 49)">
-                  <rect
-                    width="17"
-                    height="3.8"
-                    rx="1.9"
-                    fill="rgba(15, 23, 42, 0.95)"
-                    stroke="rgba(239, 68, 68, 0.8)"
-                    strokeWidth="0.5"
-                  />
-                  <text x="8.5" y="2.6" textAnchor="middle" fill="#fca5a5" fontSize="1.6" fontWeight="bold">
-                    ▲ HIGH (44.2°C)
-                  </text>
+              {/* Zone C */}
+              <g onClick={() => setSelectedZone('ZONE-C')} className="cursor-pointer" opacity={selectedZone === 'ZONE-C' ? 1 : 0.65}>
+                {showThermal && <circle cx="56" cy="58" r="10" fill="url(#hc)" />}
+                <circle cx="56" cy="58" r="10" fill="none" stroke={selectedZone === 'ZONE-C' ? '#38bdf8' : 'rgba(56,189,248,0.25)'} strokeWidth={selectedZone === 'ZONE-C' ? 0.7 : 0.4} strokeDasharray="2,1.5" />
+                <text x="56" y="49" textAnchor="middle" fill="#fff" fontSize="2.2" fontWeight="bold">Zone C</text>
+                <text x="56" y="52" textAnchor="middle" fill="#94a3b8" fontSize="1.4">Steel Framing (36.8°C)</text>
+                {showWorkers && zoneCDots.map(d => (
+                  <circle key={d.id} cx={d.x} cy={d.y} r={0.85} fill={d.c} stroke="rgba(0,0,0,0.4)" strokeWidth={0.15}
+                    className="cursor-pointer" onClick={(e) => { e.stopPropagation(); onSelectWorker(d.id); }} />
+                ))}
+              </g>
+
+              {/* Zone D */}
+              <g onClick={() => setSelectedZone('ZONE-D')} className="cursor-pointer" opacity={selectedZone === 'ZONE-D' ? 1 : 0.65}>
+                {showThermal && <circle cx="76" cy="58" r="10" fill="url(#hd)" />}
+                <circle cx="76" cy="58" r="10" fill="none" stroke={selectedZone === 'ZONE-D' ? '#10b981' : 'rgba(16,185,129,0.25)'} strokeWidth={selectedZone === 'ZONE-D' ? 0.7 : 0.4} strokeDasharray="2,1.5" />
+                <text x="76" y="49" textAnchor="middle" fill="#fff" fontSize="2.2" fontWeight="bold">Zone D</text>
+                <text x="76" y="52" textAnchor="middle" fill="#94a3b8" fontSize="1.4">Shaded Staging (30.4°C)</text>
+                {showWorkers && zoneDDots.map(d => (
+                  <circle key={d.id} cx={d.x} cy={d.y} r={0.85} fill={d.c} stroke="rgba(0,0,0,0.4)" strokeWidth={0.15}
+                    className="cursor-pointer" onClick={(e) => { e.stopPropagation(); onSelectWorker(d.id); }} />
+                ))}
+              </g>
+
+              {/* Cooling Station Icons */}
+              {showCooling && stationSVGCoords.map((st) => {
+                const liveData = coolingStations.find(s => s.station_id === st.id);
+                const isFull = liveData?.status === 'FULL';
+                const isNearCap = liveData?.status === 'NEAR_CAPACITY';
+                const stColor = isFull ? '#ef4444' : isNearCap ? '#f59e0b' : '#10b981';
+
+                return (
+                  <g
+                    key={st.id}
+                    className="cursor-pointer group"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedStation(liveData || {
+                        station_id: st.id,
+                        site_id: 'PHX-SITE-01',
+                        zone_id: `ZONE-PHX-SITE-01-${st.id.slice(3, 4)}`,
+                        name: st.label,
+                        type: st.type as any,
+                        latitude: 33.448,
+                        longitude: -112.074,
+                        capacity: 12,
+                        current_occupancy: 4,
+                        status: 'AVAILABLE',
+                      });
+                    }}
+                  >
+                    <rect
+                      x={st.x - 1.8}
+                      y={st.y - 1.8}
+                      width="3.6"
+                      height="3.6"
+                      rx="0.8"
+                      fill="#0f172a"
+                      stroke={stColor}
+                      strokeWidth="0.35"
+                    />
+                    <text
+                      x={st.x}
+                      y={st.y + 0.8}
+                      textAnchor="middle"
+                      fontSize="1.8"
+                      fill="#fff"
+                    >
+                      {getStationTypeIcon(st.type)}
+                    </text>
+                  </g>
+                );
+              })}
+              {/* Predictive Medical Pre-Positioning Ambulance in Zone A */}
+              {showMedical && (
+                <g className="cursor-pointer">
+                  <circle cx="16" cy="36" r="4.5" fill="rgba(239,68,68,0.2)" stroke="#ef4444" strokeWidth="0.3" strokeDasharray="1,0.8" />
+                  <rect x="13.5" y="33.5" width="5" height="5" rx="1.2" fill="#7f1d1d" stroke="#ef4444" strokeWidth="0.4" />
+                  <text x="16" y="37.2" textAnchor="middle" fontSize="2.8">🚑</text>
+                  <text x="16" y="41" textAnchor="middle" fontSize="1.3" fill="#fca5a5" fontWeight="bold">Paramedic #4</text>
                 </g>
-
-                {/* Worker Dots */}
-                {layerDensity &&
-                  zoneADots.map((dot) => {
-                    const isSelected = selectedWorkerId === dot.id;
-                    const isHovered = hoveredDot === dot.id;
-                    return (
-                      <circle
-                        key={dot.id}
-                        cx={dot.x}
-                        cy={dot.y}
-                        r={isSelected ? 1.4 : isHovered ? 1.2 : 0.9}
-                        fill={dot.color}
-                        stroke={isSelected ? '#ffffff' : 'rgba(0,0,0,0.5)'}
-                        strokeWidth={isSelected ? 0.4 : 0.15}
-                        className="cursor-pointer transition-all hover:scale-125"
-                        onMouseEnter={() => setHoveredDot(dot.id)}
-                        onMouseLeave={() => setHoveredDot(null)}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onSelectWorker(dot.id);
-                        }}
-                      />
-                    );
-                  })}
-              </g>
-
-              {/* --- Zone B: Structural Concrete --- */}
-              <g
-                onClick={() => setSelectedZone('ZONE-B')}
-                className="cursor-pointer transition-opacity"
-                opacity={selectedZone === 'ZONE-B' ? 1 : 0.75}
-              >
-                {layerThermal && <circle cx="74" cy="30" r="15" fill="url(#coolGlow)" />}
-                <circle
-                  cx="74"
-                  cy="30"
-                  r="15"
-                  fill="none"
-                  stroke={selectedZone === 'ZONE-B' ? '#38bdf8' : 'rgba(56, 189, 248, 0.4)'}
-                  strokeWidth={selectedZone === 'ZONE-B' ? 1.0 : 0.6}
-                  strokeDasharray="2,1.5"
-                />
-                <text x="74" y="18" textAnchor="middle" fill="#ffffff" fontSize="2.4" fontWeight="bold">
-                  Zone B
-                </text>
-                <text x="74" y="20.5" textAnchor="middle" fill="#94a3b8" fontSize="1.7">
-                  Structural Concrete
-                </text>
-
-                {/* Cooling Point in Zone B */}
-                {layerCooling && (
-                  <g transform="translate(56, 27)">
-                    <circle cx="2.2" cy="2.2" r="2.0" fill="rgba(14, 165, 233, 0.25)" stroke="#38bdf8" strokeWidth="0.5" />
-                    <text x="2.2" y="2.9" textAnchor="middle" fill="#38bdf8" fontSize="1.8">❄️</text>
-                  </g>
-                )}
-
-                {/* Worker Dots */}
-                {layerDensity &&
-                  zoneBDots.map((dot) => (
-                    <circle
-                      key={dot.id}
-                      cx={dot.x}
-                      cy={dot.y}
-                      r={0.9}
-                      fill={dot.color}
-                      stroke="rgba(0,0,0,0.4)"
-                      strokeWidth={0.15}
-                      className="cursor-pointer transition-all hover:scale-125"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectWorker(dot.id);
-                      }}
-                    />
-                  ))}
-              </g>
-
-              {/* --- Zone C: Steel Framing --- */}
-              <g
-                onClick={() => setSelectedZone('ZONE-C')}
-                className="cursor-pointer transition-opacity"
-                opacity={selectedZone === 'ZONE-C' ? 1 : 0.75}
-              >
-                {layerThermal && <circle cx="56" cy="58" r="10" fill="url(#coolGlow)" />}
-                <circle
-                  cx="56"
-                  cy="58"
-                  r="10"
-                  fill="none"
-                  stroke={selectedZone === 'ZONE-C' ? '#38bdf8' : 'rgba(56, 189, 248, 0.35)'}
-                  strokeWidth={selectedZone === 'ZONE-C' ? 0.9 : 0.5}
-                  strokeDasharray="2,1.5"
-                />
-                <text x="56" y="49" textAnchor="middle" fill="#ffffff" fontSize="2.2" fontWeight="bold">
-                  Zone C
-                </text>
-                <text x="56" y="51.5" textAnchor="middle" fill="#94a3b8" fontSize="1.6">
-                  Steel Framing
-                </text>
-
-                {/* Cooling Point in Zone C */}
-                {layerCooling && (
-                  <g transform="translate(62, 43)">
-                    <circle cx="2.2" cy="2.2" r="2.0" fill="rgba(14, 165, 233, 0.25)" stroke="#38bdf8" strokeWidth="0.5" />
-                    <text x="2.2" y="2.9" textAnchor="middle" fill="#38bdf8" fontSize="1.8">❄️</text>
-                  </g>
-                )}
-
-                {/* Worker Dots */}
-                {layerDensity &&
-                  zoneCDots.map((dot) => (
-                    <circle
-                      key={dot.id}
-                      cx={dot.x}
-                      cy={dot.y}
-                      r={0.9}
-                      fill={dot.color}
-                      stroke="rgba(0,0,0,0.4)"
-                      strokeWidth={0.15}
-                      className="cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectWorker(dot.id);
-                      }}
-                    />
-                  ))}
-              </g>
-
-              {/* --- Zone D: Shaded Staging Area --- */}
-              <g
-                onClick={() => setSelectedZone('ZONE-D')}
-                className="cursor-pointer transition-opacity"
-                opacity={selectedZone === 'ZONE-D' ? 1 : 0.75}
-              >
-                {layerThermal && <circle cx="76" cy="58" r="10" fill="url(#coolGlow)" />}
-                <circle
-                  cx="76"
-                  cy="58"
-                  r="10"
-                  fill="none"
-                  stroke={selectedZone === 'ZONE-D' ? '#10b981' : 'rgba(16, 185, 129, 0.35)'}
-                  strokeWidth={selectedZone === 'ZONE-D' ? 0.9 : 0.5}
-                  strokeDasharray="2,1.5"
-                />
-                <text x="76" y="49" textAnchor="middle" fill="#ffffff" fontSize="2.2" fontWeight="bold">
-                  Zone D
-                </text>
-                <text x="76" y="51.5" textAnchor="middle" fill="#94a3b8" fontSize="1.6">
-                  Shaded Staging
-                </text>
-
-                {/* Worker Dots */}
-                {layerDensity &&
-                  zoneDDots.map((dot) => (
-                    <circle
-                      key={dot.id}
-                      cx={dot.x}
-                      cy={dot.y}
-                      r={0.9}
-                      fill={dot.color}
-                      stroke="rgba(0,0,0,0.4)"
-                      strokeWidth={0.15}
-                      className="cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectWorker(dot.id);
-                      }}
-                    />
-                  ))}
-              </g>
+              )}
             </svg>
           </div>
 
-          {/* Bottom Bar: Risk Legend */}
-          <div className="flex items-center justify-between pt-3 border-t border-slate-800/70 text-[11px] text-slate-400">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-emerald-400"></span> Safe
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-sky-400"></span> Watch
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-amber-400"></span> Elevated
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-orange-500"></span> High
-              </span>
+          {/* Legend */}
+          <div className="px-5 py-3 border-t border-slate-800/60 bg-slate-950/40 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-400"></span> Safe</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-sky-400"></span> Watch</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-400"></span> Elevated</span>
+              <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500"></span> High</span>
             </div>
-
-            <span className="text-slate-500 font-mono">
-              Spatial Density: 113 Workers Tracked
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">⛺ Canopy</span>
+              <span className="flex items-center gap-1">💧 Water</span>
+              <span className="flex items-center gap-1">💨 Mist</span>
+              <span className="flex items-center gap-1">❄️ AC Trailer</span>
+            </div>
           </div>
         </div>
 
-        {/* Right Zone Telemetry Panel (4 cols) */}
-        <div className="col-span-12 lg:col-span-4 space-y-3.5">
-          <div className="flex items-center justify-between px-1">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-1.5">
-              <Radio className="w-4 h-4 text-cyan-400" />
-              Zone Telemetry & Logistics
-            </h3>
-            <span className="text-[10px] font-mono text-slate-500">Click to focus</span>
+        {/* Right Telemetry Cards: 4 cols on desktop */}
+        <div className="lg:col-span-4 space-y-4">
+          {/* Selected Cooling Station Inspector if clicked */}
+          {selectedStation && (
+            <div className="bg-slate-900 rounded-2xl border border-sky-500/40 p-4 shadow-lg ring-1 ring-sky-500/20">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">{getStationTypeIcon(selectedStation.type)}</span>
+                  <div>
+                    <h3 className="text-sm font-bold text-white">{selectedStation.name}</h3>
+                    <p className="text-[11px] text-slate-400 font-mono">{selectedStation.station_id}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedStation(null)}
+                  className="text-slate-400 hover:text-white text-xs cursor-pointer p-1"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div className="bg-slate-950/60 p-2 rounded-xl">
+                  <div className="text-slate-400">Occupancy</div>
+                  <div className="font-bold text-white text-sm">{selectedStation.current_occupancy} / {selectedStation.capacity}</div>
+                </div>
+                <div className="bg-slate-950/60 p-2 rounded-xl">
+                  <div className="text-slate-400">Status</div>
+                  <div className={`font-bold text-sm ${
+                    selectedStation.status === 'AVAILABLE' ? 'text-emerald-400' : selectedStation.status === 'NEAR_CAPACITY' ? 'text-amber-400' : 'text-red-400'
+                  }`}>
+                    {selectedStation.status.replace('_', ' ')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Cooling Station Resource Summary */}
+          <div className="bg-slate-900/90 rounded-2xl border border-slate-800/80 p-4">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Cooling Resource Fleet (16 Units)</h3>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-slate-950/60 rounded-xl p-2.5 text-center">
+                <div className="text-lg font-black text-emerald-400">
+                  {coolingStations.filter(s => s.status === 'AVAILABLE').length || 12}
+                </div>
+                <div className="text-[11px] text-slate-400">Available Stations</div>
+              </div>
+              <div className="bg-slate-950/60 rounded-xl p-2.5 text-center">
+                <div className="text-lg font-black text-sky-400">
+                  {coolingStations.reduce((sum, s) => sum + s.capacity, 0) || 184}
+                </div>
+                <div className="text-[11px] text-slate-400">Total Worker Cap</div>
+              </div>
+            </div>
           </div>
 
-          {/* Stacked Zone Cards */}
+          {/* Predictive Medical Pre-Positioning Card (Vision 2030 Tier 1) */}
+          <div className="bg-slate-900/90 rounded-2xl border border-red-500/30 p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-red-400 flex items-center gap-1.5">
+                🚑 Predictive Medical Pre-Positioning
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/30">
+                ACTIVE
+              </span>
+            </div>
+            <div className="text-xs text-slate-300">
+              <strong className="text-white">Phoenix Paramedic Unit #4</strong> pre-positioned at Zone A perimeter.
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-xs pt-1">
+              <div className="bg-slate-950/60 p-2 rounded-xl">
+                <div className="text-[10px] text-slate-400">Response Time</div>
+                <div className="font-bold text-emerald-400 text-sm">4 min <span className="text-[10px] text-slate-500 line-through">42m</span></div>
+              </div>
+              <div className="bg-slate-950/60 p-2 rounded-xl">
+                <div className="text-[10px] text-slate-400">Survival Efficacy</div>
+                <div className="font-bold text-sky-400 text-sm">+90.5% Gain</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Zone Telemetry */}
           <div className="space-y-3">
-            {zones.map((z) => {
-              const isSelected = selectedZone === z.id;
-
-              return (
-                <div
-                  key={z.id}
-                  onClick={() => setSelectedZone(z.id)}
-                  className={`border rounded-xl p-4 transition-all duration-200 cursor-pointer shadow-md ${
-                    isSelected
-                      ? 'bg-[#131b2e] border-sky-500 ring-1 ring-sky-500/40'
-                      : 'bg-[#0e1424]/80 border-slate-800/80 hover:bg-[#111828] hover:border-slate-700'
-                  }`}
-                >
-                  {/* Card Header */}
-                  <div className="flex items-center justify-between pb-2.5 border-b border-slate-800/80">
-                    <div>
-                      <div className="text-xs font-bold text-slate-100">{z.name}</div>
-                      <div className="text-[10px] text-slate-400 font-medium mt-0.5">{z.activity}</div>
+            <h2 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">
+              Zone Thermal Telemetry
+            </h2>
+            {zones.map((z) => (
+              <button
+                key={z.id}
+                onClick={() => setSelectedZone(z.id)}
+                className={`w-full bg-slate-900 rounded-2xl border p-4 text-left transition-all cursor-pointer group ${
+                  selectedZone === z.id
+                    ? 'border-sky-500 ring-2 ring-sky-500/20 bg-sky-500/5'
+                    : 'border-slate-800/60 hover:border-slate-700 hover:bg-slate-800/40'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="text-sm font-semibold text-white group-hover:text-sky-300 transition-colors">
+                      {z.name}
                     </div>
-
-                    <span
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
-                        z.riskLevel === 'HIGH'
-                          ? 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
-                          : z.riskLevel === 'ELEVATED'
-                          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
-                          : z.riskLevel === 'WATCH'
-                          ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
-                          : 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
-                      }`}
-                    >
-                      {z.riskLevel} ({z.temp})
-                    </span>
+                    <div className="text-xs text-slate-400">{z.desc}</div>
                   </div>
-
-                  {/* Worker Count by Risk Level (Colored Dots) */}
-                  <div className="py-2.5 flex items-center justify-between text-xs border-b border-slate-800/60">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-slate-400 font-medium">Workforce:</span>
-                      <div className="flex items-center gap-1.5 text-[10px] font-mono">
-                        {z.workerCounts.high > 0 && (
-                          <span className="flex items-center gap-1 text-rose-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> {z.workerCounts.high}
-                          </span>
-                        )}
-                        {z.workerCounts.elevated > 0 && (
-                          <span className="flex items-center gap-1 text-amber-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span> {z.workerCounts.elevated}
-                          </span>
-                        )}
-                        {z.workerCounts.watch > 0 && (
-                          <span className="flex items-center gap-1 text-sky-400">
-                            <span className="w-1.5 h-1.5 rounded-full bg-sky-400"></span> {z.workerCounts.watch}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1 text-emerald-400">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> {z.workerCounts.green}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-1 text-[11px] text-cyan-400 font-mono">
-                      <Snowflake className="w-3 h-3" />
-                      <span>{z.coolingStations} stations</span>
-                    </div>
-                  </div>
-
-                  {/* FortyGuard Microclimate Parameters */}
-                  <div className="grid grid-cols-3 gap-2 pt-2.5 text-center text-xs">
-                    <div className="bg-[#090e1a] p-1.5 rounded-lg border border-slate-800">
-                      <div className="text-[9px] text-slate-500 uppercase">Ambient</div>
-                      <div className="font-mono font-bold text-white text-[11px] mt-0.5">{z.temp}</div>
-                    </div>
-
-                    <div className="bg-[#090e1a] p-1.5 rounded-lg border border-slate-800">
-                      <div className="text-[9px] text-slate-500 uppercase">Wet Bulb</div>
-                      <div className="font-mono font-bold text-sky-300 text-[11px] mt-0.5">{z.wetBulb}</div>
-                    </div>
-
-                    <div className="bg-[#090e1a] p-1.5 rounded-lg border border-slate-800">
-                      <div className="text-[9px] text-slate-500 uppercase">Solar</div>
-                      <div className="font-mono font-bold text-amber-300 text-[11px] mt-0.5">{z.solar}</div>
-                    </div>
-                  </div>
-
-                  {/* Action Trigger for High/Elevated Zones */}
-                  {z.riskLevel === 'HIGH' && (
-                    <div className="mt-3 pt-2.5 border-t border-slate-800/80">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeployCooling(z.name);
-                        }}
-                        className="w-full py-1.5 px-3 rounded-lg bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 text-xs font-semibold transition cursor-pointer flex items-center justify-center gap-1.5"
-                      >
-                        <Snowflake className="w-3.5 h-3.5" />
-                        <span>Dispatch Mobile Misting Unit</span>
-                      </button>
-                    </div>
-                  )}
+                  <span className={`px-2.5 py-0.5 rounded-lg text-xs font-semibold border ${riskBadge(z.risk)}`}>
+                    {z.risk}
+                  </span>
                 </div>
-              );
-            })}
+                <div className="flex items-center justify-between text-xs text-slate-400 pt-2 border-t border-slate-800/50">
+                  <span className="text-slate-300 font-medium">{z.workers} active workers</span>
+                  <span className="font-semibold text-white">{z.temp}</span>
+                </div>
+              </button>
+            ))}
           </div>
         </div>
       </div>

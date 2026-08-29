@@ -13,10 +13,12 @@
   "dependencies": {
     "@sentinel/action-engine": "*",
     "@sentinel/fortyguard-provider": "*",
+    "@sentinel/hydration-engine": "*",
     "@sentinel/policy": "*",
     "@sentinel/prediction-engine": "*",
     "@sentinel/risk-engine": "*",
     "@sentinel/schemas": "*",
+    "@sentinel/scheduling-engine": "*",
     "@sentinel/simulation": "*",
     "better-sqlite3": "^11.8.1",
     "cors": "^2.8.5",

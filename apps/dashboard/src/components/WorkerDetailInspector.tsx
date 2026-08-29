@@ -300,7 +300,7 @@ export const WorkerDetailInspector: React.FC<WorkerDetailInspectorProps> = ({
                 <Sparkles className="w-5 h-5 text-cyan-400 shrink-0" />
                 <div>
                   <div className="text-[10px] text-slate-400">FortyGuard Ambient</div>
-                  <div className="text-sm font-bold font-mono text-cyan-300">42.3°C / 28% RH</div>
+                  <div className="text-sm font-bold font-mono text-cyan-300">35.0°C / 28% RH</div>
                 </div>
               </div>
             </div>
@@ -309,6 +309,133 @@ export const WorkerDetailInspector: React.FC<WorkerDetailInspectorProps> = ({
               <span>Task Intensity: <strong className="text-slate-200">{worker.task_intensity}</strong></span>
               <span>Delivery Channel: <strong className="font-mono text-sky-400">{worker.channel}</strong></span>
             </div>
+          </div>
+
+          {/* Section 4 — Hydration Intelligence Engine (Vision 2030) */}
+          <div className="bg-slate-900/70 border border-sky-500/30 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+                💧 Hydration Intelligence (ACGIH TLV)
+              </span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                isElevated ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+              }`}>
+                {isElevated ? 'AGGRESSIVE HYDRATION' : 'STANDARD PROTOCOL'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 text-xs">
+              <div className="bg-[#131b2e] p-2.5 rounded-lg border border-slate-800">
+                <div className="text-[10px] text-slate-400">Fluid Cadence</div>
+                <div className="text-sm font-bold font-mono text-white mt-0.5">
+                  {isElevated ? '300 mL / 12 min' : '250 mL / 20 min'}
+                </div>
+              </div>
+              <div className="bg-[#131b2e] p-2.5 rounded-lg border border-slate-800">
+                <div className="text-[10px] text-slate-400">Hourly Target</div>
+                <div className="text-sm font-bold font-mono text-sky-300 mt-0.5">
+                  {isElevated ? '1,500 mL / hr' : '750 mL / hr'}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 text-[11px] space-y-1">
+              <div className="text-slate-300 flex items-center justify-between">
+                <span>Electrolyte Recommendation:</span>
+                <strong className={isElevated ? 'text-amber-400' : 'text-slate-400'}>
+                  {isElevated ? 'Mandatory (Na+ / K+ Oral Rehydration)' : 'Optional (Standard Water)'}
+                </strong>
+              </div>
+              <div className="text-[10px] text-slate-500">
+                Science basis: ACGIH TLV for Heat Stress (Adjusted for {worker.risk_modifier} acclimatization)
+              </div>
+            </div>
+          </div>
+
+          {/* Section 5 — Peer Buddy AI Pairing System (Vision 2030 Tier 1) */}
+          <div className="bg-slate-900/70 border border-purple-500/30 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
+                👥 Peer Buddy Surveillance AI
+              </span>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                SYNCHRONIZED
+              </span>
+            </div>
+
+            <div className="bg-[#131b2e] p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-slate-400 text-[10px]">Assigned Safety Partner</div>
+                  <div className="text-sm font-bold text-white font-mono">
+                    {worker.worker_id === 'WRK-0043' ? 'WRK-0059' : 'WRK-0043'} (Mentor Carpenter)
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="text-slate-400 text-[10px]">Last Peer Check-in</div>
+                  <div className="text-xs font-semibold text-emerald-400">12 min ago</div>
+                </div>
+              </div>
+
+              <div className="p-2 rounded bg-slate-950/80 border border-purple-500/20 text-[11px] text-purple-200">
+                <strong>Active Peer Prompt:</strong> Check on partner for thermal dizziness or reduced speech cadence. Recommend taking next 15-min cooling trailer break together.
+              </div>
+            </div>
+          </div>
+
+          {/* Section 6 — Multi-Biometric Sensor Mesh (Vision 2030 Tier 2/3) */}
+          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                📡 Multi-Biometric Sensor Mesh
+              </span>
+              <span className="text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                3 Devices Online
+              </span>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2 text-center text-xs">
+              <div className="bg-[#131b2e] p-2 rounded-lg border border-slate-800">
+                <div className="text-[10px] text-slate-400">Core Temp Patch</div>
+                <div className="text-sm font-bold font-mono text-amber-400 mt-0.5">{coreTemp.toFixed(1)}°C</div>
+                <div className="text-[9px] text-slate-500">±0.3°C Adh.</div>
+              </div>
+              <div className="bg-[#131b2e] p-2 rounded-lg border border-slate-800">
+                <div className="text-[10px] text-slate-400">Sweat Sodium</div>
+                <div className="text-sm font-bold font-mono text-sky-400 mt-0.5">{isElevated ? '58.4' : '32.1'}</div>
+                <div className="text-[9px] text-slate-500">mmol/L</div>
+              </div>
+              <div className="bg-[#131b2e] p-2 rounded-lg border border-slate-800">
+                <div className="text-[10px] text-slate-400">BLE Smartwatch</div>
+                <div className="text-sm font-bold font-mono text-rose-400 mt-0.5">{heartRate} bpm</div>
+                <div className="text-[9px] text-slate-500">Exertion Watts</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 7 — 2-Way SMS Delivery Verification */}
+          <div className="bg-slate-900/70 border border-slate-800 rounded-xl p-3.5 flex items-center justify-between text-xs">
+            <div>
+              <div className="text-slate-300 font-semibold flex items-center gap-1.5">
+                <span>📱 2-Way SMS Verification Loop</span>
+                <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-400">
+                  Verified
+                </span>
+              </div>
+              <div className="text-[10px] text-slate-500 mt-0.5">
+                Worker confirmed via SMS reply: "1 (Resting in Shade A-02)"
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                fetch(`/api/actions/act_${worker.worker_id}/verify-sms`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reply_text: 'YES_CONFIRMED' }) });
+                setActionSuccessMsg('SMS receipt confirmed from worker cell.');
+                setTimeout(() => setActionSuccessMsg(null), 3000);
+              }}
+              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold border border-slate-700 transition cursor-pointer"
+            >
+              Simulate Ack
+            </button>
           </div>
 
           {/* Telemetry & Audit History Link */}

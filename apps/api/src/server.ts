@@ -23,6 +23,14 @@ import { createPredictionRouter } from './routes/prediction.js';
 import { createIncidentsRouter } from './routes/incidents.js';
 import { createOperationsRouter } from './routes/operations.js';
 import { createDevRouter } from './routes/dev.js';
+import { createReportsRouter } from './routes/reports.js';
+import { createHydrationRouter } from './routes/hydration.js';
+import { createCoolingRouter } from './routes/cooling.js';
+import { createSchedulingRouter } from './routes/scheduling.js';
+import { createBuddyRouter } from './routes/buddy.js';
+import { createSmsVerifyRouter } from './routes/sms-verify.js';
+import { createWearablesRouter } from './routes/wearables.js';
+import { createClimateRouter } from './routes/climate.js';
 
 dotenv.config();
 
@@ -153,7 +161,8 @@ export function createSentinelServer() {
     audit,
     simulationEngine,
     wsServer,
-    process.env.RISK_SERVICE_URL || 'http://localhost:8000'
+    process.env.RISK_SERVICE_URL || 'http://localhost:8000',
+    fortyGuardAdapter
   );
 
   // Mount API routers
@@ -169,6 +178,14 @@ export function createSentinelServer() {
   app.use('/api', createSimulationRouter(orchestrator));
   app.use('/api', createFortyGuardRouter(fortyGuardAdapter, orchestrator, db));
   app.use('/api', createDevRouter(orchestrator, db));
+  app.use('/api', createReportsRouter(orchestrator, db));
+  app.use('/api', createHydrationRouter(db));
+  app.use('/api', createCoolingRouter(db));
+  app.use('/api', createSchedulingRouter(db));
+  app.use('/api', createBuddyRouter(db));
+  app.use('/api', createSmsVerifyRouter(db));
+  app.use('/api', createWearablesRouter(db));
+  app.use('/api', createClimateRouter(db));
 
   // Standardized Error handling middleware
   app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
