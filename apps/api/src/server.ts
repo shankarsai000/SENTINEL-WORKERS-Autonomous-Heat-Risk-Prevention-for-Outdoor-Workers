@@ -224,7 +224,7 @@ export function createSentinelServer() {
 }
 
 if (process.env.NODE_ENV !== 'test') {
-  const { server } = createSentinelServer();
+  const { server, orchestrator } = createSentinelServer();
   server.listen(PORT, () => {
     logger.info({
       event: 'SERVER_STARTUP',
@@ -232,5 +232,7 @@ if (process.env.NODE_ENV !== 'test') {
       message: `Sentinel Workers API running on http://localhost:${PORT}`,
       wsEndpoint: `ws://localhost:${PORT}/ws`,
     });
+    // Start continuous 24/7 background real-time evaluation & FortyGuard live loop
+    orchestrator.startSimulation(1);
   });
 }

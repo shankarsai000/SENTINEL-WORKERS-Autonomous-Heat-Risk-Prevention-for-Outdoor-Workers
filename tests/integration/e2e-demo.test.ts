@@ -9,7 +9,9 @@ describe('Phase P6: Complete End-to-End Demo Validation Test', () => {
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
     process.env.DATABASE_PATH = './test-e2e-demo.db';
+    process.env.THERMAL_DATA_MODE = 'offline';
     const sentinel = createSentinelServer();
+    sentinel.orchestrator.setThermalDataMode('offline');
     server = sentinel.server;
     await new Promise<void>((resolve) => {
       server.listen(0, () => {

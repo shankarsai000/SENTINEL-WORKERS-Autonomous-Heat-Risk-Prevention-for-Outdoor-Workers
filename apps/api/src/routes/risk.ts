@@ -66,7 +66,7 @@ export function createRiskRouter(db: SentinelDatabase): Router {
     }
   });
 
-  router.get('/risk/workers', (req: Request, res: Response) => {
+  const handleGetRiskStates = (req: Request, res: Response) => {
     try {
       const limit = parseInt(req.query.limit as string) || 50;
       const siteId = req.query.site_id as string | undefined;
@@ -88,12 +88,16 @@ export function createRiskRouter(db: SentinelDatabase): Router {
       res.json({
         count: enriched.length,
         total: states.length,
+        states: enriched,
         workers: enriched,
       });
     } catch (err: any) {
       res.status(500).json({ error: 'Failed to retrieve worker risk states', details: err.message });
     }
-  });
+  };
+
+  router.get('/risk/workers', handleGetRiskStates);
+  router.get('/risk/states', handleGetRiskStates);
 
   router.get('/risk/workers/:workerId', (req: Request, res: Response) => {
     try {

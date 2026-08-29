@@ -12,11 +12,11 @@ export type FortyGuardErrorCode =
   | 'ACTIVITY_FAILED'
   | 'UNKNOWN_ERROR';
 
-export function redactSecrets(text: string, apiKey?: string): string {
-  if (!text) return '';
-  let sanitized = text;
+export function redactSecrets(text: unknown, apiKey?: string): string {
+  if (text === null || text === undefined) return '';
+  let sanitized = typeof text === 'string' ? text : String(text);
 
-  if (apiKey && apiKey.length > 4) {
+  if (apiKey && typeof apiKey === 'string' && apiKey.length > 4) {
     sanitized = sanitized.split(apiKey).join('[REDACTED]');
   }
 

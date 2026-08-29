@@ -33,9 +33,9 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
     const adapter = new FortyGuardAdapter({
       apiKey,
       baseUrl: process.env.FORTYGUARD_BASE_URL || process.env.FORTYGUARD_API_BASE_URL || 'https://api.fortyguard.com',
-      timeoutMs: 30000,
-      maxPollAttempts: 20,
-      pollIntervalMs: 1500,
+      timeoutMs: 60000,
+      maxPollAttempts: 40,
+      pollIntervalMs: 2000,
       offlineFallback: false,
     });
 
@@ -65,7 +65,7 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
     // Step 2: Feed Real Observation into P2 Contextual Risk Engine
     const policy = PolicyLoader.getPolicy();
     const riskEngine = new ContextualRiskEngine(policy);
-    const workers = generateSyntheticWorkers(testSite.site_id, 10);
+    const workers = generateSyntheticWorkers({ count: 10, sites: [testSite] });
 
     const evalResult = riskEngine.evaluateBatch({
       workers,
@@ -121,7 +121,7 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
     expect(predResult.predictiveState.prediction_confidence).toBeGreaterThanOrEqual(0);
 
     // Step 4: Feed into P4 Action Planner & Safety Policy Gate
-    const actions = ActionPlanner.planActions({
+    const plan = ActionPlanner.planActions({
       currentRisk: evalResult.riskStates[0],
       predictedRisk: predResult.predictiveState,
       workerCtx: {
@@ -148,7 +148,8 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
       policy,
     });
 
-    expect(actions).toBeDefined();
+    expect(plan).toBeDefined();
+    expect(plan.recommended_action).toBeDefined();
 
     // Step 5: Test Credit Protection Cache Hit
     const cachedQuery = await adapter.fetchSiteObservation(testSite, {
@@ -158,5 +159,5 @@ describe('Phase P1-R: FortyGuard Live End-to-End Pipeline Integration', () => {
 
     expect(cachedQuery.cacheHit).toBe(true);
     expect(cachedQuery.observation.source).toBe('fortyguard_cache');
-  }, 60000);
+  }, 120000);
 });

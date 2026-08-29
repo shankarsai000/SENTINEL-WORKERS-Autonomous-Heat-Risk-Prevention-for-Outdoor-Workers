@@ -9,7 +9,9 @@ describe('Full Closed-Loop End-to-End Pipeline Integration', () => {
   beforeAll(async () => {
     process.env.DATABASE_PATH = './sentinel-e2e-test.db';
     process.env.NODE_ENV = 'test';
+    process.env.THERMAL_DATA_MODE = 'offline';
     const instance = createSentinelServer();
+    instance.orchestrator.setThermalDataMode('offline');
     server = instance.server;
 
     await new Promise<void>((resolve) => {

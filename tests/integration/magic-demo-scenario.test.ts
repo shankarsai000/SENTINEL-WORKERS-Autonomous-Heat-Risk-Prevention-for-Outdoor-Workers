@@ -15,7 +15,9 @@ describe('Magic Demo Scenario — 14-Step End-to-End Validation', () => {
     }
     process.env.DATABASE_PATH = testDbPath;
     process.env.NODE_ENV = 'test';
+    process.env.THERMAL_DATA_MODE = 'offline';
     const serverInstance = createSentinelServer();
+    serverInstance.orchestrator.setThermalDataMode('offline');
     server = serverInstance.server;
 
     await new Promise<void>((resolve) => {
