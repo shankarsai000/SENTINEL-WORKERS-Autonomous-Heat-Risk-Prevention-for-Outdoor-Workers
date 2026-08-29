@@ -3,6 +3,16 @@ import cors from 'cors';
 import http from 'http';
 import dotenv from 'dotenv';
 import pino from 'pino';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load root and local .env files
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+dotenv.config();
 import { SentinelDatabase } from './db/database.js';
 import { AuditService } from './services/audit-service.js';
 import { OfflineSimulationEngine } from '@sentinel/simulation';
@@ -32,7 +42,7 @@ import { createSmsVerifyRouter } from './routes/sms-verify.js';
 import { createWearablesRouter } from './routes/wearables.js';
 import { createClimateRouter } from './routes/climate.js';
 
-dotenv.config();
+
 
 // Structured logger with strict PII and credential redaction
 export const logger = pino({
@@ -154,7 +164,11 @@ export function createSentinelServer() {
   const audit = new AuditService(db.db);
   const simulationEngine = new OfflineSimulationEngine();
   const wsServer = new SentinelWebSocketServer(server);
-  const fortyGuardAdapter = new FortyGuardAdapter({ offlineFallback: true });
+  const fortyGuardAdapter = new FortyGuardAdapter({
+    apiKey: process.env.FORTYGUARD_API_KEY,
+    baseUrl: process.env.FORTYGUARD_BASE_URL || process.env.FORTYGUARD_API_BASE_URL || 'https://api.fortyguard.com',
+    offlineFallback: true,
+  });
 
   const orchestrator = new SentinelOrchestrator(
     db,
